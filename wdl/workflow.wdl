@@ -9,16 +9,16 @@ workflow annotate_variants {
     }
 
     parameter_meta {
-        VCF: {help: "Input VCF. Can be gzipped/bgzipped."},
-        SNPEFF_DB: {help: "SNPeff annotation bundle (zip file)"},
-        SNPEFF_DB_NAME: {help: "Name of SNPeff annotation bundle. E.g. GRCh38.105"},
-        GNOMAD_VCF: {help: "VCF with all variants in gnomAD and their allele frequency (AF INFO field). Must be sorted, bgzipped, and indexed."},
-        GNOMAD_VCF_INDEX: {help: "Index for GNOMAD_VCF (.tbi file)."},
-        CLINVAR_VCF: {help: "VCF with all variants in ClinVar and their clinical significance (CLNSIG INFO field). Must be sorted, bgzipped, and indexed."},
-        CLINVAR_VCF_INDEX: {help: "Index for CLINVAR_VCF (.tbi file)."},
-        SV_DB_RDATA: {help: "RData file with the databases used for SV annotation (e.g. SV catalogs, dbVar clinical SVs, DGV)."},
-        SPLIT_MULTIAL: {help: "Should multiallelic variants be split into biallelic records?", default: "true"},
-        SORT_INDEX_VCF: {help: "Should the output VCF be sorted, bgzipped, and indexed?", default: "true"}
+        VCF: "Input VCF. Can be gzipped/bgzipped."
+        SNPEFF_DB: "SNPeff annotation bundle (zip file)"
+        SNPEFF_DB_NAME: "Name of SNPeff annotation bundle. E.g. GRCh38.105"
+        GNOMAD_VCF: "VCF with all variants in gnomAD and their allele frequency (AF INFO field). Must be sorted, bgzipped, and indexed."
+        GNOMAD_VCF_INDEX: "Index for GNOMAD_VCF (.tbi file)."
+        CLINVAR_VCF: "VCF with all variants in ClinVar and their clinical significance (CLNSIG INFO field). Must be sorted, bgzipped, and indexed."
+        CLINVAR_VCF_INDEX: "Index for CLINVAR_VCF (.tbi file)."
+        SV_DB_RDATA: "RData file with the databases used for SV annotation (e.g. SV catalogs, dbVar clinical SVs, DGV)."
+        SPLIT_MULTIAL: "Should multiallelic variants be split into biallelic records? Default: true",
+        SORT_INDEX_VCF: "Should the output VCF be sorted, bgzipped, and indexed? Default: true"
     }
     
     input {
