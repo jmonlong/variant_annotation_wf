@@ -19,6 +19,8 @@ workflow annotate_variants {
         SV_DB_RDATA: "RData file with the databases used for SV annotation (e.g. SV catalogs, dbVar clinical SVs, DGV)."
         SPLIT_MULTIAL: "Should multiallelic variants be split into biallelic records? Default: true"
         SORT_INDEX_VCF: "Should the output VCF be sorted, bgzipped, and indexed? Default: true"
+	DBNSFP_DB: "dbNSFP annotation bundle (block-gzip)"
+        DBNSFP_DB_INDEX: "Index for DBNSFP_DB"
     }
     
     input {
@@ -30,6 +32,8 @@ workflow annotate_variants {
         File? CLINVAR_VCF
         File? CLINVAR_VCF_INDEX
         File? SV_DB_RDATA
+	File? DBNSFP_DB
+        File? DBNSFP_DB_INDEX
         Boolean SPLIT_MULTIAL = true
         Boolean SORT_INDEX_VCF = true
     }
@@ -58,14 +62,16 @@ workflow annotate_variants {
 
     # annotate SNVs/indels with frequency in gnomAD and presence in ClinVar
     # note: first filter variants to keep those with high/moderate impact or with predicted loss of function (speeds up DB matching a lot)
-    if (defined(GNOMAD_VCF) && defined(GNOMAD_VCF_INDEX) && defined(CLINVAR_VCF) && defined(CLINVAR_VCF_INDEX)){
+    if (defined(GNOMAD_VCF) && defined(GNOMAD_VCF_INDEX) && defined(CLINVAR_VCF) && defined(CLINVAR_VCF_INDEX) && defined(DBNSFP_DB) && defined(DBNSFP_DB_INDEX)){
         call subset_annotate_smallvars_with_db {
             input:
             input_vcf=annotated_vcf,
             gnomad_vcf=select_first([GNOMAD_VCF]),
             gnomad_vcf_index=select_first([GNOMAD_VCF_INDEX]),
             clinvar_vcf=select_first([CLINVAR_VCF]),
-            clinvar_vcf_index=select_first([CLINVAR_VCF_INDEX])
+            clinvar_vcf_index=select_first([CLINVAR_VCF_INDEX]),
+	    dbnsfp_db = select_first([DBNSFP_DB]),
+            dbnsfp_db_index = select_first([DBNSFP_DB_INDEX])
         }
     }
     
@@ -199,9 +205,11 @@ task subset_annotate_smallvars_with_db {
         File gnomad_vcf_index
         File clinvar_vcf
         File clinvar_vcf_index
+	File dbnsfp_db
+        File dbnsfp_db_index
         Int memSizeGB = 16
         Int threadCount = 2
-        Int diskSizeGB = 5*round(size(input_vcf, "GB") + size(gnomad_vcf, 'GB') + size(clinvar_vcf, 'GB')) + 30
+        Int diskSizeGB = 5*round(size(input_vcf, "GB") + size(gnomad_vcf, 'GB') + size(clinvar_vcf, 'GB')) + size(dbnsfp_db, 'GB')) + 30
     }
 
     Int snpsiftMem = if memSizeGB < 6 then 2 else memSizeGB - 4
@@ -215,6 +223,8 @@ task subset_annotate_smallvars_with_db {
         ln -s ~{gnomad_vcf_index} gnomad.vcf.bgz.tbi
         ln -s ~{clinvar_vcf} clinvar.vcf.bgz
         ln -s ~{clinvar_vcf_index} clinvar.vcf.bgz.tbi
+	ln -s ~{dbnsfp_db} dbnsfp.txt.gz
+        ln -s ~{dbnsfp_db_index} dbnsfp.txt.gz.tbi
 
         ## filter variants to keep those with high/moderate impact or with predicted loss of function
         ## then annotate with their frequency in gnomAD
@@ -223,10 +233,13 @@ task subset_annotate_smallvars_with_db {
 
         ## annotate IDs with clinvar IDs and add the CLNSIG INFO field
         zcat ~{basen}.gnomad.vcf.gz | SnpSift -Xmx~{snpsiftMem}g annotate -info CLNSIG -v clinvar.vcf.bgz | gzip > ~{basen}.gnomad.clinvar.vcf.gz
+	
+	## annotate IDs with dbNSFP prediction scores and conservation scores
+        zcat ~{basen}.gnomad.clinvar.vcf.gz | SnpSift -Xmx~{snpsiftMem}g dbnsfp -v -db dbnsfp.txt.gz -f GERP++_RS,CADD_raw,CADD_phred > ~{basen}.gnomad.clinvar.dbnsfp.vcf.gz
 	>>>
 
 	output {
-		File vcf = "~{basen}.gnomad.clinvar.vcf.gz"
+		File vcf = "~{basen}.gnomad.clinvar.dbnsfp.vcf.gz"
 	}
 
     runtime {
