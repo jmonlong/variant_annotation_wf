@@ -206,7 +206,7 @@ task subset_annotate_smallvars_with_db {
         File clinvar_vcf
         File clinvar_vcf_index
 	File dbnsfp_db
-        File dbnsfp_db_index
+	File dbnsfp_db_index
         Int memSizeGB = 16
         Int threadCount = 2
         Int diskSizeGB = 5*round(size(input_vcf, "GB") + size(gnomad_vcf, 'GB') + size(clinvar_vcf, 'GB') + size(dbnsfp_db, 'GB')) + 30
@@ -235,7 +235,7 @@ task subset_annotate_smallvars_with_db {
         zcat ~{basen}.gnomad.vcf.gz | SnpSift -Xmx~{snpsiftMem}g annotate -info CLNSIG -v clinvar.vcf.bgz | gzip > ~{basen}.gnomad.clinvar.vcf.gz
 	
 	## annotate IDs with dbNSFP prediction scores and conservation scores
-        zcat ~{basen}.gnomad.clinvar.vcf.gz | SnpSift -Xmx~{snpsiftMem}g dbnsfp -v -db dbnsfp.txt.gz -f GERP++_RS,CADD_raw,CADD_phred > ~{basen}.gnomad.clinvar.dbnsfp.vcf.gz
+        zcat ~{basen}.gnomad.clinvar.vcf.gz | SnpSift -Xmx~{snpsiftMem}g dbnsfp -v -db dbnsfp.txt.gz -f GERP++_RS,CADD_raw,CADD_phred | gzip > ~{basen}.gnomad.clinvar.dbnsfp.vcf.gz
 	>>>
 
 	output {
