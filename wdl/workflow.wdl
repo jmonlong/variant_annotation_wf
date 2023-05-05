@@ -209,7 +209,7 @@ task subset_annotate_smallvars_with_db {
         File dbnsfp_db_index
         Int memSizeGB = 16
         Int threadCount = 2
-        Int diskSizeGB = 5*round(size(input_vcf, "GB") + size(gnomad_vcf, 'GB') + size(clinvar_vcf, 'GB')) + size(dbnsfp_db, 'GB')) + 30
+        Int diskSizeGB = 5*round(size(input_vcf, "GB") + size(gnomad_vcf, 'GB') + size(clinvar_vcf, 'GB') + size(dbnsfp_db, 'GB')) + 30
     }
 
     Int snpsiftMem = if memSizeGB < 6 then 2 else memSizeGB - 4
