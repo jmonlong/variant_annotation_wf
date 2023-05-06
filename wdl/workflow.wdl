@@ -236,7 +236,7 @@ task subset_annotate_smallvars_with_db {
 	
 	## annotate IDs with dbNSFP prediction scores and conservation scores
         zcat ~{basen}.gnomad.clinvar.vcf.gz > ~{basen}.gnomad.clinvar.vcf
-	SnpSift -Xmx~{snpsiftMem}g dbnsfp -v -db dbnsfp.txt.gz -f GERP++_RS,CADD_raw,CADD_phred ~{basen}.gnomad.clinvar.vcf | gzip > ~{basen}.gnomad.clinvar.dbnsfp.vcf.gz
+	SnpSift -Xmx~{snpsiftMem}g dbnsfp -v -db dbnsfp.txt.gz -f GERP++_RS,CADD_raw,CADD_phred,MetaRNN_score,MetaRNN_pred ~{basen}.gnomad.clinvar.vcf | gzip > ~{basen}.gnomad.clinvar.dbnsfp.vcf.gz
 	>>>
 
 	output {
