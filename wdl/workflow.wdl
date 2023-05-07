@@ -175,9 +175,8 @@ task annotate_with_snpeff {
 
         unzip ~{snpeff_db}
         
-        snpEff -Xmx~{snpeffMem}g -nodownload -no-intergenic \
-               -dataDir "${PWD}/data" ~{db_name} \
-               ~{input_vcf} | gzip > ~{basen}.snpeff.vcf.gz
+          zcat ~{input_vcf} | snpEff -Xmx~{snpeffMem}g -nodownload -no-intergenic \
+               -dataDir "${PWD}/data" ~{db_name} | gzip > ~{basen}.snpeff.vcf.gz
 	>>>
 
 	output {
@@ -219,11 +218,11 @@ task subset_annotate_smallvars_with_db {
 
         ## filter variants to keep those with high/moderate impact or with predicted loss of function
         ## then annotate with their frequency in gnomAD
-        SnpSift -Xmx1g filter "(ANN[*].IMPACT has 'HIGH') | (ANN[*].IMPACT has 'MODERATE') | ((exists LOF[*].PERC) & (LOF[*].PERC > 0.9))" ~{input_vcf} | \
+        zcat ~{input_vcf} | SnpSift -Xmx1g filter "(ANN[*].IMPACT has 'HIGH') | (ANN[*].IMPACT has 'MODERATE') | ((exists LOF[*].PERC) & (LOF[*].PERC > 0.9))" | \
             SnpSift -Xmx~{snpsiftMem}g annotate -noId -v gnomad.vcf.bgz | gzip > ~{basen}.gnomad.vcf.gz
 
         ## annotate IDs with clinvar IDs and add the CLNSIG INFO field
-        SnpSift -Xmx~{snpsiftMem}g annotate -info CLNSIG -v clinvar.vcf.bgz ~{basen}.gnomad.vcf.gz | gzip > ~{basen}.gnomad.clinvar.vcf.gz
+        zcat ~{basen}.gnomad.vcf.gz | SnpSift -Xmx~{snpsiftMem}g annotate -info CLNSIG -v clinvar.vcf.bgz | gzip > ~{basen}.gnomad.clinvar.vcf.gz
 	>>>
 
 	output {
