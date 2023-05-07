@@ -103,11 +103,12 @@ annotateSVs <-function(vcf.o){
   svs.gr$dgv = suppressWarnings(annotateOverlap(svs.gr, dgva))
   ## header for the new INFO fields
   info.h = S4Vectors::DataFrame(
-                        Number=rep('1', 2), Type=rep('Float', 2),
+                        Number=rep('1', 3), Type=rep('Float', 3),
                         Description=c(
+                          'Allele frequency',
                           'Overlap score with the most similar SV in dbVar Clinical SVs',
                           'Overlap score with the most similar SV in DGV'))
-  rownames(info.h) = c('CLINSV', 'DGV')
+  rownames(info.h) = c('AF', 'CLINSV', 'DGV')
   info(header(vcf.o)) = rbind(info(header(vcf.o)), info.h)
   ## add information back to the vcf object
   info(vcf.o)$AF[svs.gr$ii] = signif(svs.gr$af, 4)
