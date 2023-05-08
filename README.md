@@ -39,13 +39,19 @@ To reduce the size of the dbNSFP database used by SNPeff:
 
 ```sh
 ## download dbNSFP from the SNPeff repo
-wget https://snpeff.blob.core.windows.net/databases/dbs/GRCh38/dbNSFP_4.1a/dbNSFP4.1a.txt.gz
+wget -O dbNSFP4.3.zip https://usf.box.com/shared/static/9r6iamhldji4c3vodwebh3947vgrvsng
+## Uncompress
+unzip dbNSFP4.3.zip
+## Create a single file version
+zcat dbNSFP4.3a_variant.chr1.gz | head -n 1 > header.txt
+zcat dbNSFP4.3a_variant.chr* | grep -v "^#" >> header.txt
+bgzip header.txt > dbNSFP4.3.txt.gz
 ## (optional) list columns in full txt file. helps finding the column numbers 
-zcat dbNSFP4.1a.txt.gz | head -1 | awk 'BEGIN{RS="\t"}{N=N+1;print N" "$0}' | less
+zcat dbNSFP4.3.txt.gz | head -1 | awk 'BEGIN{RS="\t"}{N=N+1;print N" "$0}' | less
 ## keep only some columns
-zcat dbNSFP4.1a.txt.gz | cut -f 1-4,114-116,151-153 | bgzip > dbNSFP4.1a.small.txt.gz
+zcat dbNSFP4.3.txt.gz | cut -f 1-4,77-79,118-120,155-157 | bgzip > dbNSFP4.3.small.txt.gz
 ## index with tabix
-tabix -b 2 -e 2 -s 1 dbNSFP4.1a.small.txt.gz
+tabix -b 2 -e 2 -s 1 dbNSFP4.3.small.txt.gz
 ```
 
-If we keep only information about GERP and CADD, the file size decreases from 31G to about 1G.
+If we keep only information about GERP and CADD, the file size decreases from 35G to about 2G.
