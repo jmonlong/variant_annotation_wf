@@ -54,4 +54,4 @@ zcat dbNSFP4.3.txt.gz | cut -f 1-4,77-79,118-120,155-157 | bgzip > dbNSFP4.3.sma
 tabix -b 2 -e 2 -s 1 dbNSFP4.3.small.txt.gz
 ```
 
-If we keep only information about GERP and CADD, the file size decreases from 35G to about 2G.
+If we keep only information about GERP, CADD and MetaRNN, the file size decreases from 35G to about 2G.
