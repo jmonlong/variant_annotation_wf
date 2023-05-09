@@ -21,6 +21,9 @@ workflow annotate_variants {
         SORT_INDEX_VCF: "Should the output VCF be sorted, bgzipped, and indexed? Default: true"
         DBNSFP_DB: "dbNSFP annotation bundle (block-gzip)"
         DBNSFP_DB_INDEX: "Index for DBNSFP_DB"
+        BAM: "Sorted and indexed BAM with the long reads. Optional. If present, SVs will be re-genotyped to help filtering false-positives out."
+        BAM_INDEX: "Index for BAM"
+        REFERENCE_FASTA: "Reference fasta. Optional. Used for SV in silico validation when BAM and BAM_INDEX are provided."
     }
     
     input {
@@ -34,6 +37,9 @@ workflow annotate_variants {
         File? SV_DB_RDATA
         File? DBNSFP_DB
         File? DBNSFP_DB_INDEX
+        File? BAM
+        File? BAM_INDEX
+        File? REFERENCE_FASTA
         Boolean SPLIT_MULTIAL = true
         Boolean SORT_INDEX_VCF = true
     }
@@ -88,15 +94,28 @@ workflow annotate_variants {
     
     File sv_annotated_vcf = select_first([annotate_sv_with_db.vcf, small_annotated_vcf])
 
+    # regenotype SVs with local pangenomes using vg to provide some in silico "validation"
+    if (defined(BAM) && defined(BAM_INDEX) && defined(REFERENCE_FASTA)){
+        call validate_svs_with_vg {
+            input:
+            input_vcf=sv_annotated_vcf,
+            bam=select_first([BAM]),
+            bam_index=select_first([BAM_INDEX]),
+            reference_fasta=select_first([REFERENCE_FASTA])
+        }
+    }
+
+    File sv_validated_vcf = select_first([validate_svs_with_vg.vcf, sv_annotated_vcf])
+
     # sort annotated VCF
     if (SORT_INDEX_VCF){
         call sort_vcf {
             input:
-            input_vcf=sv_annotated_vcf
+            input_vcf=sv_validated_vcf
         }
     }
     
-    File final_vcf = select_first([sort_vcf.vcf, sv_annotated_vcf])
+    File final_vcf = select_first([sort_vcf.vcf, sv_validated_vcf])
     
     output {
         File vcf = final_vcf
@@ -289,6 +308,48 @@ task annotate_sv_with_db {
         cpu: threadCount
         disks: "local-disk " + diskSizeGB + " SSD"
         docker: "quay.io/jmonlong/svannotate_sveval:0.2"
+        preemptible: 1
+    }
+}
+
+task validate_svs_with_vg {
+    input {
+        File input_vcf
+        File bam
+        File bam_index
+        File reference_fasta
+        Int memSizeGB = 8
+        Int threadCount = 4
+        Int diskSizeGB = 5*round(size(input_vcf, "GB") + size(bam, 'GB') + size(reference_fasta, 'GB')) + 30
+    }
+
+    String basen = sub(sub(basename(input_vcf), ".vcf.bgz$", ""), ".vcf.gz$", "")
+    
+    command <<<
+        set -eux -o pipefail
+
+        ## link and index reference fasta
+        ln -s ~{reference_fasta} ref.fa
+        samtools faidx ref.fa
+
+        ## link BAM file and index to make sure the index is found
+        ln -s ~{bam} reads.bam
+        ln -s ~{bam_index} reads.bam.bai
+        
+        # annotate SVs
+        mkdir temp
+        python3 /opt/scripts/validate-svs.py -b reads.bam -f ref.fa -v ~{input_vcf} -d temp -o ~{basen}.svval.vcf.gz -t ~{threadCount}
+    >>>
+
+    output {
+        File vcf = "~{basen}.svval.vcf.gz"
+    }
+
+    runtime {
+        memory: memSizeGB + " GB"
+        cpu: threadCount
+        disks: "local-disk " + diskSizeGB + " SSD"
+        docker: "quay.io/jmonlong/svvalidate_vgcall:0.1"
         preemptible: 1
     }
 }

@@ -7,6 +7,33 @@ Simple variant annotation.
     - Small variants are annotated with with gnomAD's allele frequencies, and ClinVar's clinical significance.
     - Structural variants are annotated with the frequency in SV catalogs, and their overlap with dbVar clinical SVs, or DGV.
 
+## Inputs
+
+### Gene annotation
+
+If `SNPEFF_DB` and `SNPEFF_DB_NAME` are provided, SNPeff will annotate variants with their impact based on the gene annotation.
+
+### Small variant databases
+
+If `GNOMAD_VCF`, `GNOMAD_VCF_INDEX`, `CLINVAR_VCF`, `CLINVAR_VCF_INDEX`, `DBNSFP_DB`, and `DBNSFP_DB_INDEX` are provided, SNPeff/SNPsift will annotate small variants with:
+
+- their frequency in gnomAD
+- their presence and clinical significance in ClinVar
+- the predicted impact based on conservation (GERP++), CADD, or MetaRNN.
+
+### Structural variant databases
+
+If `SV_DB_RDATA` is providd, SVs are annotated with:
+
+- the frequency of similar SVs in public SV catalogs
+- their similarity with variants in DGV
+- their similarity with the Clinical SV dataset from dbVar
+
+### Structural variant validation
+
+If `BAM`, `BAM_INDEX`, and `REFERENCE_FASTA` are provided, SVs will be re-genotyped from the long reads using local pangenomes built with vg.
+A new INFO field called *VAL* will represent the read support for the alternate allele.
+
 ## Test locally
 
 ```
