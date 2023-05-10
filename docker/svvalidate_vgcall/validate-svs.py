@@ -31,20 +31,31 @@ def write_single_sv_vcf(sv_info, vcf_path):
 # function to evaluate a SV
 # sv_info is a dict with a 'svid', position and ref/alt sequences information
 def evaluate_sv(sv_info, ref_fa_path, bam_path, output_dir,
-                debug_mode=False, nb_cores=2):
+                debug_mode=False, nb_cores=2, chr_lens={}):
     dump = open('/dev/null', 'w')
     # make VCF with just the one SV
     vcf_path = os.path.join(output_dir, sv_info['svid'] + ".vcf")
     vcf_path_gz = write_single_sv_vcf(sv_info, vcf_path)
-    # decide on the region to consider (SV + flanks?)
-    flank_size_vg = 50000
+    # decide on the region to consider
+    # for now take the SV position and add some flanking regions
+    # make sure to not go over the chromosome boundaruies though
+    flank_size = 50000
+    region_start = max(0, sv_info['start'] - flank_size)
+    region_end = sv_info['end'] + flank_size
+    if sv_info['seqn'] in chr_lens:
+        region_end = min(region_end, chr_lens[sv_info['seqn']])
     region_coord_vg = '{}:{}-{}'.format(sv_info['seqn'],
-                                        sv_info['start'] - flank_size_vg,
-                                        sv_info['end'] + flank_size_vg)
+                                        region_start,
+                                        region_end)
+    # also use smaller flanks to extract the reads to make sure they align
     flank_size = 10000
+    region_start = max(0, sv_info['start'] - flank_size)
+    region_end = sv_info['end'] + flank_size
+    if sv_info['seqn'] in chr_lens:
+        region_end = min(region_end, chr_lens[sv_info['seqn']])
     region_coord = '{}:{}-{}'.format(sv_info['seqn'],
-                                     sv_info['start'] - flank_size,
-                                     sv_info['end'] + flank_size)
+                                     region_start,
+                                     region_end)
     # make graph with SV
     construct_args = ["vg", "construct", "-a", "-m", "1024", "-S",
                       "-r", ref_fa_path, "-v", vcf_path_gz,
@@ -125,6 +136,16 @@ args = parser.parse_args()
 
 DEBUG_MODE = True
 
+# index reference fasta if needed
+if not os.path.isfile(args.f + '.fai'):
+    index_fasta(args.f)
+# extract chromosome lengths from the .fai (2nd column)
+chr_lens = {}
+with open(args.f + '.fai', 'rt') as inf:
+    for line in inf:
+        line = line.rstrip().split('\t')
+        chr_lens[line[0]] = int(line[1])
+
 vcf = VCF(args.v)
 vcf.add_info_to_header({'ID': 'RS_PROP',
                         'Description': 'Proportion of supporting reads (from vg genotyping)',
@@ -149,7 +170,8 @@ for variant in vcf:
                                            variant.start,
                                            seq.hexdigest())
         score = evaluate_sv(svinfo, args.f, args.b, args.d,
-                            DEBUG_MODE, nb_cores=args.t)
+                            DEBUG_MODE, nb_cores=args.t,
+                            chr_lens=chr_lens)
         variant.INFO["RS_PROP"] = score['prop']
         variant.INFO["RS_AD"] = score['ad']
     vcf_o.write_record(variant)
