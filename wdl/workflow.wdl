@@ -147,7 +147,7 @@ task split_multiallelic_vcf {
         memory: memSizeGB + " GB"
         cpu: threadCount
         disks: "local-disk " + diskSizeGB + " SSD"
-        docker: "quay.io/biocontainers/bcftools:1.16--hfe4b78e_1"
+        docker: "quay.io/biocontainers/bcftools@sha256:f3a74a67de12dc22094e299fbb3bcd172eb81cc6d3e25f4b13762e8f9a9e80aa"
         preemptible: 1
     }
 }
@@ -177,7 +177,7 @@ task sort_vcf {
         memory: memSizeGB + " GB"
         cpu: 1
         disks: "local-disk " + diskSizeGB + " SSD"
-        docker: "quay.io/biocontainers/bcftools:1.16--hfe4b78e_1"
+        docker: "quay.io/biocontainers/bcftools@sha256:f3a74a67de12dc22094e299fbb3bcd172eb81cc6d3e25f4b13762e8f9a9e80aa"
         preemptible: 1
     }
 }
@@ -212,7 +212,7 @@ task annotate_with_snpeff {
         memory: memSizeGB + " GB"
         cpu: threadCount
         disks: "local-disk " + diskSizeGB + " SSD"
-        docker: "quay.io/biocontainers/snpeff:5.1d--hdfd78af_0"
+        docker: "quay.io/biocontainers/snpeff@sha256:7ac091da707f5d63f307eef4ee57c3f0e94eed49f86bbdace3d4be3a514ed410"
         preemptible: 1
     }
 }
@@ -266,7 +266,7 @@ task subset_annotate_smallvars_with_db {
         memory: memSizeGB + " GB"
         cpu: threadCount
         disks: "local-disk " + diskSizeGB + " SSD"
-        docker: "quay.io/biocontainers/snpsift:5.1d--hdfd78af_0"
+        docker: "quay.io/biocontainers/snpsift@sha256:049babfac841d15a92d8febfc10a25f5aa109c9fe6670af35ea79583a1c78402"
         preemptible: 1
     }
 }
@@ -307,7 +307,7 @@ task annotate_sv_with_db {
         memory: memSizeGB + " GB"
         cpu: threadCount
         disks: "local-disk " + diskSizeGB + " SSD"
-        docker: "quay.io/jmonlong/svannotate_sveval:0.2"
+        docker: "quay.io/jmonlong/svannotate_sveval@sha256:ca67367a1848938c05ce7508b8a9f2a9bc7fd8c9d33c06f634075677b7b529be"
         preemptible: 1
     }
 }
@@ -349,7 +349,7 @@ task validate_svs_with_vg {
         memory: memSizeGB + " GB"
         cpu: threadCount
         disks: "local-disk " + diskSizeGB + " SSD"
-        docker: "quay.io/jmonlong/svvalidate_vgcall:0.1"
+        docker: "quay.io/jmonlong/svvalidate_vgcall@sha256:f05abdf22765837084a3f046b6fb8971c8bbc50d9f60da659dfccb7fcbaf2da7"
         preemptible: 1
     }
 }
