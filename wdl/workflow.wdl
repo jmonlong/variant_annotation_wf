@@ -349,7 +349,7 @@ task validate_svs_with_vg {
         memory: memSizeGB + " GB"
         cpu: threadCount
         disks: "local-disk " + diskSizeGB + " SSD"
-        docker: "quay.io/jmonlong/svvalidate_vgcall@sha256:1ece3ede69847f60c4ae636c25833ed4eb798e70411f9846512f44c0a788ec28"
+        docker: "quay.io/jmonlong/svvalidate_vgcall@sha256:17a20f78bec17bb77192a5315feda8bafd6cfaa819227a4b352b4f6377e23bd3"
         preemptible: 1
     }
 }
