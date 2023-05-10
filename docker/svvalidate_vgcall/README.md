@@ -18,3 +18,8 @@ optional arguments:
   -o O        output (annotated) VCF (will be bgzipped if ending in .gz)
   -t T        number of threads used by the tools (vg and minigraph))
 ```
+
+Two new INFO fields are added in the output VCF:
+
+- `RS_PROP` with the proportion of supporting reads.
+- `RS_AD` with the read support for the reference and alternate alleles (e.g. `3,5` for 3 reference-supporting reads and 5 SV-supporting reads).

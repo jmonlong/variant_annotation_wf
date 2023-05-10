@@ -4,8 +4,9 @@ Simple variant annotation.
 
 - Variants are annotated with their predicted impact on the genes using SNPeff
 - Then with public variant databases:
-    - Small variants are annotated with with gnomAD's allele frequencies, and ClinVar's clinical significance.
+    - Small variants are annotated with with gnomAD's allele frequencies, conservation/CADD/MetaRNN scores, and ClinVar's clinical significance.
     - Structural variants are annotated with the frequency in SV catalogs, and their overlap with dbVar clinical SVs, or DGV.
+- Structural variants can also be re-genotyped from the long reads to compute the read support and help rank/filter them by confidence.
 
 ## Inputs
 
@@ -23,7 +24,7 @@ If `GNOMAD_VCF`, `GNOMAD_VCF_INDEX`, `CLINVAR_VCF`, `CLINVAR_VCF_INDEX`, `DBNSFP
 
 ### Structural variant databases
 
-If `SV_DB_RDATA` is providd, SVs are annotated with:
+If `SV_DB_RDATA` is provided, SVs are annotated with:
 
 - the frequency of similar SVs in public SV catalogs
 - their similarity with variants in DGV
@@ -32,16 +33,10 @@ If `SV_DB_RDATA` is providd, SVs are annotated with:
 ### Structural variant validation
 
 If `BAM`, `BAM_INDEX`, and `REFERENCE_FASTA` are provided, SVs will be re-genotyped from the long reads using local pangenomes built with vg.
-A new INFO field called *VAL* will represent the read support for the alternate allele.
+Two new INFO fields will represent the read support for the SV allele:
 
-## Test locally
-
-```
-## download GRCh38.105 database
-wget https://snpeff.blob.core.windows.net/databases/v5_1/snpEff_v5_1_GRCh38.105.zip
-
-miniwdl run --as-me -i test/test.inputs.json wdl/workflow.wdl
-```
+- `RS_PROP` with the proportion of supporting reads.
+- `RS_AD` with the read support for the reference and alternate alleles (e.g. `3,5` for 3 reference-supporting reads and 5 SV-supporting reads).
 
 ## Prepare annotation files
 
@@ -82,3 +77,12 @@ tabix -b 2 -e 2 -s 1 dbNSFP4.3.small.txt.gz
 ```
 
 If we keep only information about GERP, CADD and MetaRNN, the file size decreases from 35G to about 2G.
+
+## Test locally
+
+```
+## download GRCh38.105 database
+wget https://snpeff.blob.core.windows.net/databases/v5_1/snpEff_v5_1_GRCh38.105.zip
+
+miniwdl run --as-me -i test/test.inputs.json wdl/workflow.wdl
+```

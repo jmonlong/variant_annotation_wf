@@ -12,22 +12,26 @@ def write_single_sv_vcf(sv_info, vcf_path):
     outf = open(vcf_path, 'wt')
     outf.write("##fileformat=VCFv4.2\n")
     outf.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
-    outf.write("{seqn}\t{pos}\t.\t{ref}\t{alt}\t.\t.\t.\n".format(seqn=sv_info['seqn'],
-                                                                  pos=sv_info['start'],
-                                                                  ref=sv_info['ref'],
-                                                                  alt=sv_info['alt']))
+    rec_to_format = "{seqn}\t{pos}\t.\t{ref}\t{alt}\t.\t.\t.\n"
+    outf.write(rec_to_format.format(seqn=sv_info['seqn'],
+                                    pos=sv_info['start'],
+                                    ref=sv_info['ref'],
+                                    alt=sv_info['alt']))
     outf.close()
     bgzip_args = ["bgzip", "-c", vcf_path]
     vcf_path_gz = vcf_path + '.gz'
     with open(vcf_path_gz, 'w') as file:
-        run(bgzip_args, check=True, stdout=file, stderr=sys.stderr, universal_newlines=True)
+        run(bgzip_args, check=True, stdout=file,
+            stderr=sys.stderr, universal_newlines=True)
     tabix_args = ["tabix", vcf_path_gz]
-    run(tabix_args, check=True, stdout=sys.stdout, stderr=sys.stderr, universal_newlines=True)
-    return(vcf_path_gz)
+    run(tabix_args, check=True, stdout=sys.stdout,
+        stderr=sys.stderr, universal_newlines=True)
+    return (vcf_path_gz)
 
 # function to evaluate a SV
 # sv_info is a dict with a 'svid', position and ref/alt sequences information
-def evaluate_sv(sv_info, ref_fa_path, bam_path, output_dir, debug_mode=False, nb_cores=2):
+def evaluate_sv(sv_info, ref_fa_path, bam_path, output_dir,
+                debug_mode=False, nb_cores=2):
     dump = open('/dev/null', 'w')
     # make VCF with just the one SV
     vcf_path = os.path.join(output_dir, sv_info['svid'] + ".vcf")
@@ -43,66 +47,91 @@ def evaluate_sv(sv_info, ref_fa_path, bam_path, output_dir, debug_mode=False, nb
                                      sv_info['end'] + flank_size)
     # make graph with SV
     construct_args = ["vg", "construct", "-a", "-m", "1024", "-S",
-                      "-r", ref_fa_path, "-v", vcf_path_gz, "-R", region_coord_vg]
+                      "-r", ref_fa_path, "-v", vcf_path_gz,
+                      "-R", region_coord_vg]
     vg_output_path = os.path.join(output_dir, sv_info['svid'] + ".vg")
     with open(vg_output_path, 'w') as file:
-        run(construct_args, check=True, stdout=file, stderr=sys.stderr, universal_newlines=True)
+        run(construct_args, check=True, stdout=file,
+            stderr=sys.stderr, universal_newlines=True)
     # extract reads
     extract_args = ["samtools", "view", "-h", bam_path, region_coord]
     sam_output_path = os.path.join(output_dir, sv_info['svid'] + ".sam")
     with open(sam_output_path, 'w') as file:
-        run(extract_args, check=True, stdout=file, stderr=sys.stderr, universal_newlines=True)
+        run(extract_args, check=True, stdout=file,
+            stderr=sys.stderr, universal_newlines=True)
     extract_args = ["samtools", "fasta", sam_output_path]
     fa_output_path = os.path.join(output_dir, sv_info['svid'] + ".fasta")
     with open(fa_output_path, 'w') as file:
-        run(extract_args, check=True, stdout=file, stderr=dump, universal_newlines=True)
+        run(extract_args, check=True, stdout=file,
+            stderr=dump, universal_newlines=True)
     # align reads to pangenome
     convert_args = ["vg", "convert", "-f", vg_output_path]
     gfa_output_path = os.path.join(output_dir, sv_info['svid'] + ".gfa")
     with open(gfa_output_path, 'w') as file:
-        run(convert_args, check=True, stdout=file, stderr=sys.stderr, universal_newlines=True)    
-    map_args = ["minigraph", "-t", str(nb_cores), "-c", gfa_output_path, fa_output_path]
+        run(convert_args, check=True, stdout=file,
+            stderr=sys.stderr, universal_newlines=True)
+    map_args = ["minigraph", "-t", str(nb_cores),
+                "-c", gfa_output_path, fa_output_path]
     gaf_output_path = os.path.join(output_dir, sv_info['svid'] + ".gaf")
     with open(gaf_output_path, 'w') as file:
-        run(map_args, check=True, stdout=file, stderr=dump, universal_newlines=True)    
+        run(map_args, check=True, stdout=file,
+            stderr=dump, universal_newlines=True)
     # genotype SV
     pack_output_path = os.path.join(output_dir, sv_info['svid'] + ".pack")
     pack_args = ["vg", "pack", "-t", str(nb_cores), "-e",
-                 "-x", vg_output_path, "-o", pack_output_path, '-a', gaf_output_path]
-    run(pack_args, check=True, stdout=sys.stdout, stderr=sys.stderr, universal_newlines=True)    
+                 "-x", vg_output_path, "-o", pack_output_path,
+                 '-a', gaf_output_path]
+    run(pack_args, check=True, stdout=sys.stdout,
+        stderr=sys.stderr, universal_newlines=True)
     call_args = ["vg", "call", "-t", str(nb_cores),
                  "-k", pack_output_path, '-v', vcf_path, vg_output_path]
-    call_output_path = os.path.join(output_dir, sv_info['svid'] + ".called.vcf")
+    call_output_path = os.path.join(output_dir,
+                                    sv_info['svid'] + ".called.vcf")
     with open(call_output_path, 'w') as file:
-        run(call_args, check=True, stdout=file, stderr=sys.stderr, universal_newlines=True)    
+        run(call_args, check=True, stdout=file,
+            stderr=sys.stderr, universal_newlines=True)
     # update SV information or return a score
-    score = -1
+    score = {'prop': -1, 'ad': ''}
     for variant in VCF(call_output_path):
         ad = variant.format('AD')[0]
-        score = float(ad[1]) / (ad[0] + ad[1])
+        dp = ad[0] + ad[1]
+        score['ad'] = '{}|{}'.format(ad[0], ad[1])
+        if dp == 0:
+            score['prop'] = 0
+        else:
+            score['prop'] = float(ad[1]) / dp
     # remove intermediate files
     if not debug_mode:
-        for ff in [sam_output_path, vg_output_path, fa_output_path, gfa_output_path,
+        for ff in [sam_output_path, vg_output_path,
+                   fa_output_path, gfa_output_path,
                    gaf_output_path, pack_output_path, call_output_path,
                    vcf_path, vcf_path_gz, vcf_path_gz + '.tbi']:
             os.remove(ff)
     dump.close()
-    return(score)
+    return (score)
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-b', help='BAM file (indexed)', required=True)
 parser.add_argument('-f', help='reference FASTA file (indexed)', required=True)
-parser.add_argument('-v', help='variants in VCF (can be bgzipped)', required=True)
+parser.add_argument('-v', help='variants in VCF (can be bgzipped)',
+                    required=True)
 parser.add_argument('-d', help='output directory', default='temp_valsv')
-parser.add_argument('-o', help='output (annotated) VCF (will be bgzipped if ending in .gz)', default='out.vcf')
-parser.add_argument('-t', help='number of threads used by the tools (vg and minigraph))', default=2)
+parser.add_argument('-o', default='out.vcf',
+                    help='output (annotated) VCF (will be bgzipped if ending in .gz)')
+parser.add_argument('-t', default=2,
+                    help='number of threads used by the tools (vg and minigraph))')
 args = parser.parse_args()
 
 DEBUG_MODE = True
 
 vcf = VCF(args.v)
-vcf.add_info_to_header({'ID': 'VAL', 'Description': 'Validation score from vg genotyping',
-    'Type':'Float', 'Number': '1'})
+vcf.add_info_to_header({'ID': 'RS_PROP',
+                        'Description': 'Proportion of supporting reads (from vg genotyping)',
+                        'Type': 'Float', 'Number': '1'})
+vcf.add_info_to_header({'ID': 'RS_AD',
+                        'Description': 'Number of reads supporting the ref|alt (from vg genotyping)',
+                        'Type': 'String', 'Number': '1'})
 vcf_o = Writer(args.o, vcf)
 
 # Read VCF and evaluate each SV
@@ -117,9 +146,12 @@ for variant in vcf:
         seq = '{}_{}'.format(variant.REF, variant.ALT[0])
         seq = hashlib.sha1(seq.encode())
         svinfo['svid'] = '{}_{}_{}'.format(variant.CHROM,
-                                              variant.start,
-                                              seq.hexdigest())
-        variant.INFO["VAL"] = evaluate_sv(svinfo, args.f, args.b, args.d, DEBUG_MODE, nb_cores=args.t)
+                                           variant.start,
+                                           seq.hexdigest())
+        score = evaluate_sv(svinfo, args.f, args.b, args.d,
+                            DEBUG_MODE, nb_cores=args.t)
+        variant.INFO["RS_PROP"] = score['prop']
+        variant.INFO["RS_AD"] = score['ad']
     vcf_o.write_record(variant)
 
 vcf_o.close()
