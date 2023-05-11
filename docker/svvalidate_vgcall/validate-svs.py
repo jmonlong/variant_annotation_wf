@@ -40,19 +40,19 @@ def evaluate_sv(sv_info, ref_fa_path, bam_path, output_dir,
     # for now take the SV position and add some flanking regions
     # make sure to not go over the chromosome boundaruies though
     flank_size = 50000
-    region_start = max(0, sv_info['start'] - flank_size)
+    region_start = max(1, sv_info['start'] - flank_size)
     region_end = sv_info['end'] + flank_size
     if sv_info['seqn'] in chr_lens:
-        region_end = min(region_end, chr_lens[sv_info['seqn']])
+        region_end = min(region_end, chr_lens[sv_info['seqn']] - 1)
     region_coord_vg = '{}:{}-{}'.format(sv_info['seqn'],
                                         region_start,
                                         region_end)
     # also use smaller flanks to extract the reads to make sure they align
     flank_size = 10000
-    region_start = max(0, sv_info['start'] - flank_size)
+    region_start = max(1, sv_info['start'] - flank_size)
     region_end = sv_info['end'] + flank_size
     if sv_info['seqn'] in chr_lens:
-        region_end = min(region_end, chr_lens[sv_info['seqn']])
+        region_end = min(region_end, chr_lens[sv_info['seqn']] - 1)
     region_coord = '{}:{}-{}'.format(sv_info['seqn'],
                                      region_start,
                                      region_end)
