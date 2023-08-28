@@ -86,4 +86,5 @@ If we keep only information about GERP, CADD, MetaRNN, and ALFA, the file size d
 wget https://snpeff.blob.core.windows.net/databases/v5_1/snpEff_v5_1_GRCh38.105.zip
 
 miniwdl run --as-me -i test/test.inputs.json wdl/workflow.wdl
+miniwdl run --as-me -i test/test.inputs.noncodingsvs.json wdl/workflow.wdl
 ```
