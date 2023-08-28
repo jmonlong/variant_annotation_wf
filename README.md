@@ -60,23 +60,24 @@ The final bgzipped VCF is only 4.5G.
 To reduce the size of the dbNSFP database used by SNPeff:
 
 ```sh
-## download dbNSFP from the SNPeff repo
-wget -O dbNSFP4.3.zip https://usf.box.com/shared/static/9r6iamhldji4c3vodwebh3947vgrvsng
-## Uncompress
-unzip dbNSFP4.3.zip
-## Create a single file version
-zcat dbNSFP4.3a_variant.chr1.gz | head -n 1 > header.txt
-zcat dbNSFP4.3a_variant.chr* | grep -v "^#" >> header.txt
-bgzip header.txt > dbNSFP4.3.txt.gz
-## (optional) list columns in full txt file. helps finding the column numbers 
-zcat dbNSFP4.3.txt.gz | head -1 | awk 'BEGIN{RS="\t"}{N=N+1;print N" "$0}' | less
-## keep only some columns
-zcat dbNSFP4.3.txt.gz | cut -f 1-4,77-79,118-120,155-157 | bgzip > dbNSFP4.3.small.txt.gz
+## download dbNSFP zip from https://sites.google.com/site/jpopgen/dbNSFP
+## list files in the zip
+unzip -l dbNSFP4.4a.zip
+## list columns in full txt file. helps finding/double-checking the column numbers we want to keep
+unzip -p dbNSFP4.4a.zip dbNSFP4.4a_variant.chr1.gz | zcat | head -1 | awk 'BEGIN{RS="\t"}{N=N+1;print N" "$0}' | less
+## keep only some columns. gzip to control the size of temporary files and use multi-threaded gzip (pigz) to speed up a bit
+unzip -p dbNSFP4.4a.zip dbNSFP4.4a_variant.chr1.gz | zcat | head -1 | cut -f 1-4,77-79,128-130,165-167,676 | gzip > temp.txt.gz
+for CHR in `seq 1 22` X Y M
+do
+    unzip -p dbNSFP4.4a.zip dbNSFP4.4a_variant.chr${CHR}.gz | zcat | sed 1d | cut -f 1-4,77-79,128-130,165-167,676 | pigz -c -p 4 >> temp.txt.gz
+done
+## bgzip instead of gzip
+unpigz -c -p 4 temp.txt.gz | bgzip > dbNSFP4.4a.small.txt.gz
 ## index with tabix
-tabix -b 2 -e 2 -s 1 dbNSFP4.3.small.txt.gz
+tabix -b 2 -e 2 -s 1 dbNSFP4.4a.small.txt.gz
 ```
 
-If we keep only information about GERP, CADD and MetaRNN, the file size decreases from 35G to about 2G.
+If we keep only information about GERP, CADD, MetaRNN, and ALFA, the file size decreases from 35G to about 2G.
 
 ## Test locally
 
@@ -85,4 +86,5 @@ If we keep only information about GERP, CADD and MetaRNN, the file size decrease
 wget https://snpeff.blob.core.windows.net/databases/v5_1/snpEff_v5_1_GRCh38.105.zip
 
 miniwdl run --as-me -i test/test.inputs.json wdl/workflow.wdl
+miniwdl run --as-me -i test/test.inputs.noncodingsvs.json wdl/workflow.wdl
 ```
