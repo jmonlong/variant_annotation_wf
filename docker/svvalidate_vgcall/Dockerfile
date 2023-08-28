@@ -47,10 +47,11 @@ RUN git clone https://github.com/lh3/minigraph.git && \
 ENV PATH=$PATH:/bin/minigraph
 
 # python packages
-RUN pip3 install cyvcf2
+RUN pip3 install cyvcf2 snakemake
 
 # add script
 WORKDIR /opt/scripts
 ADD validate-svs.py /opt/scripts
+ADD Snakefile /opt/scripts
 
 WORKDIR /home

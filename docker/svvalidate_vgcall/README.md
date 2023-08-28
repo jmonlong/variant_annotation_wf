@@ -23,3 +23,7 @@ Two new INFO fields are added in the output VCF:
 
 - `RS_PROP` with the proportion of supporting reads.
 - `RS_AD` with the read support for the reference and alternate alleles (e.g. `3,5` for 3 reference-supporting reads and 5 SV-supporting reads).
+
+Latest version: `quay.io/jmonlong/svvalidate_vgcall:0.5` 
+
+To build locally and upload to [quay.io](https://quay.io/jmonlong/svvalidate_vgcall).

@@ -319,11 +319,12 @@ task validate_svs_with_vg {
         File bam_index
         File reference_fasta
         Int memSizeGB = 8
-        Int threadCount = 4
+        Int threadCount = 16
         Int diskSizeGB = 5*round(size(input_vcf, "GB") + size(bam, 'GB') + size(reference_fasta, 'GB')) + 30
     }
 
     String basen = sub(sub(basename(input_vcf), ".vcf.bgz$", ""), ".vcf.gz$", "")
+    Int smCores = threadsCount / 2
     
     command <<<
         set -eux -o pipefail
@@ -335,10 +336,12 @@ task validate_svs_with_vg {
         ## link BAM file and index to make sure the index is found
         ln -s ~{bam} reads.bam
         ln -s ~{bam_index} reads.bam.bai
-        
-        # annotate SVs
-        mkdir temp
-        python3 /opt/scripts/validate-svs.py -b reads.bam -f ref.fa -v ~{input_vcf} -d temp -o ~{basen}.svval.vcf.gz -t ~{threadCount}
+
+        ## run the validation script in parallel across smCores cores
+        ln -s ~{input_vcf} input.vcf.gz
+        snakemake --snakefile /opt/scripts/Snakefile --cores ~{smCores}
+
+        mv output.vcf.gz ~{basen}.svval.vcf.gz
     >>>
 
     output {

@@ -1,0 +1,65 @@
+# assumes the following input files
+#    reads.bam
+#    ref.fa
+#    input.vcf.gz
+
+N_CHUNKS = 8
+if 'nchunks' in config:
+    N_CHUNKS = config['nchunks']
+
+THREADS = 2
+if 'threads' in config:
+    THREADS = config['threads']
+
+rule main:
+    input: 'output.vcf'
+    output: 'output.vcf.gz'
+    shell:
+        """
+        bgzip {input}
+        """
+
+rule split_header:
+    output:
+        header='input.header.vcf',
+        noheader='input.noheader.vcf'
+    input: 'input.vcf.gz'
+    shell:
+        """
+        zgrep "#" {input} > {output.header}
+        zgrep -v "#" > {output.noheader}
+        """
+
+rule split_vcf:
+    output: "chunk/{chunk}.vcf"
+    input:
+        header='input.header.vcf',
+        noheader='input.noheader.vcf'
+    shell:
+        """
+        cp {input.header} {output}
+        split -n l/{wildcards.chunk}/{N_CHUNKS} {input.noheader} >> {output}
+        """
+
+rule process_chunk:
+    input:
+        "chunk/{chunk}.vcf"
+    output:
+        "out/{chunk}.vcf"
+    params: tdir="temp_{chunk}"
+    shell:
+        """
+        mkdir {params.tdir}
+        python3 /opt/scripts/validate-svs.py -b reads.bam -f ref.fa -v ~{input} -d {params.tdir} -o {output} -t ~{THREADS}
+        rm -r {params.tdir}
+        """
+
+rule cat_out_vcfs:
+    input:
+        expand("out/{chunk}.vcf", chunk=range(1,N_CHUNKS+1))
+    output: "output.vcf"
+    shell:
+        """
+        grep "#" {input[0]} > {output}
+        cat {input} | grep -v "#" >> {output}
+        """
