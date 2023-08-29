@@ -372,7 +372,7 @@ task validate_svs_with_vg {
     }
 
     String basen = sub(sub(basename(input_vcf), ".vcf.bgz$", ""), ".vcf.gz$", "")
-    Int smCores = threadsCount / 2
+    Int smCores = threadCount / 2
     
     command <<<
         set -eux -o pipefail
