@@ -318,7 +318,7 @@ task annotate_sv_with_db {
         memory: memSizeGB + " GB"
         cpu: threadCount
         disks: "local-disk " + diskSizeGB + " SSD"
-        docker: "quay.io/jmonlong/svannotate_sveval@sha256:aa54697f9a2af8b63be49ba8dee67f983e1879a9b943099d7d533afaae1736c8"
+        docker: "quay.io/jmonlong/svannotate_sveval@sha256:09a366b11db8cc26a2d19abd411f1884cad8a32f3c302804c05e2e282ffbd82d"
         preemptible: 1
     }
 }
@@ -355,7 +355,7 @@ task annotate_noncoding_sv_with_db {
         memory: memSizeGB + " GB"
         cpu: threadCount
         disks: "local-disk " + diskSizeGB + " SSD"
-        docker: "quay.io/jmonlong/svannotate_sveval@sha256:aa54697f9a2af8b63be49ba8dee67f983e1879a9b943099d7d533afaae1736c8"
+        docker: "quay.io/jmonlong/svannotate_sveval@sha256:09a366b11db8cc26a2d19abd411f1884cad8a32f3c302804c05e2e282ffbd82d"
         preemptible: 1
     }
 }
@@ -400,7 +400,7 @@ task validate_svs_with_vg {
         memory: memSizeGB + " GB"
         cpu: threadCount
         disks: "local-disk " + diskSizeGB + " SSD"
-        docker: "quay.io/jmonlong/svvalidate_vgcall@sha256:a75bd1607da23da1bc28d710180c8c1ab05fd14149c9a75779db11b671469351"
+        docker: "quay.io/jmonlong/svvalidate_vgcall@sha256:aad56b00b201095a2b4ce7734e1b42181e4511104dec5df6ebc5cb35802474ad"
         preemptible: 1
     }
 }
