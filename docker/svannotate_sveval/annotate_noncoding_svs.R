@@ -101,12 +101,14 @@ annotateSVs <-function(vcf.o){
   ## rename tandem duplications into DUP
   svs.gr$type = ifelse(svs.gr$type=='DUP:TANDEM', "DUP", svs.gr$type)
   svs.gr$type = ifelse(svs.gr$type=='DUP', "INS", svs.gr$type)
+  ## keep only svs near enhancer of disease genes
+  svs.gr = subsetByOverlaps(svs.gr, c(dis.enh, dis.enh.enc), maxgap=10)
   ## annotate frequency and presence in database
   svs.gr$af = suppressWarnings(annotateFrequency(svs.gr, sv.catalogs, simprep=sr))
   svs.gr$clinsv = suppressWarnings(annotateOverlap(svs.gr, clinsv))
   svs.gr$dgv = suppressWarnings(annotateOverlap(svs.gr, dgva))
-  ## keep only svs near enhancer of disease genes
-  svs.gr = subsetByOverlaps(svs.gr, c(dis.enh, dis.enh.enc), maxgap=10)
+  ## keep only rare svs
+  svs.gr = subset(svs.gr, af<.01 & dgv < .9) 
   ## header for the new INFO fields
   info.h = S4Vectors::DataFrame(
                         Number=rep('1', 3), Type=rep('Float', 3),
