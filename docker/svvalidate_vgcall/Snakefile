@@ -27,7 +27,7 @@ rule split_header:
     shell:
         """
         zgrep "#" {input} > {output.header}
-        zgrep -v "#" > {output.noheader}
+        zgrep -v "#" {input} > {output.noheader}
         """
 
 rule split_vcf:
