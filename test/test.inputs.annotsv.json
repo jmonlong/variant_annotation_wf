@@ -1,0 +1,6 @@
+{
+  "annotate_variants.VCF": "test/test.vcf.gz",
+  "annotate_variants.SPLIT_MULTIAL": true,
+  "annotate_variants.SORT_INDEX_VCF": true,
+  "annotate_variants.ANNOTATE_SVS_ANNOTSV_ONLY": true
+}

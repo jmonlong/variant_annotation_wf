@@ -25,6 +25,7 @@ workflow annotate_variants {
         BAM_INDEX: "Index for BAM"
         REFERENCE_FASTA: "Reference fasta. Optional. Used for SV in silico validation when BAM and BAM_INDEX are provided."
         ANNOTATE_NONCODING_SVS_ONLY: "Extract and annotate non-coding SVs near enhancers of disease genes? Default is false"
+        ANNOTATE_SVS_ANNOTSV_ONLY: "Run annotation on SV only with AnnotSV? Default is false"
     }
     
     input {
@@ -44,6 +45,7 @@ workflow annotate_variants {
         Boolean SPLIT_MULTIAL = true
         Boolean SORT_INDEX_VCF = true
         Boolean ANNOTATE_NONCODING_SVS_ONLY = false
+        Boolean ANNOTATE_SVS_ANNOTSV_ONLY = false
     }
 
     # split multi-allelic variants
@@ -57,7 +59,7 @@ workflow annotate_variants {
     # annotate variants with predicted effect based on gene annotation
     File current_vcf = select_first([split_multiallelic_vcf.vcf, VCF])
 
-    if(defined(SNPEFF_DB) && defined(SNPEFF_DB) && !ANNOTATE_NONCODING_SVS_ONLY){
+    if(defined(SNPEFF_DB) && defined(SNPEFF_DB) && !ANNOTATE_NONCODING_SVS_ONLY && !ANNOTATE_SVS_ANNOTSV_ONLY){
         call annotate_with_snpeff {
             input:
             input_vcf=current_vcf,
@@ -70,7 +72,7 @@ workflow annotate_variants {
 
     # annotate SNVs/indels with frequency in gnomAD and presence in ClinVar
     # note: first filter variants to keep those with high/moderate impact or with predicted loss of function (speeds up DB matching a lot)
-    if (defined(GNOMAD_VCF) && defined(GNOMAD_VCF_INDEX) && defined(CLINVAR_VCF) && defined(CLINVAR_VCF_INDEX) && defined(DBNSFP_DB) && defined(DBNSFP_DB_INDEX) && !ANNOTATE_NONCODING_SVS_ONLY){
+    if (defined(GNOMAD_VCF) && defined(GNOMAD_VCF_INDEX) && defined(CLINVAR_VCF) && defined(CLINVAR_VCF_INDEX) && defined(DBNSFP_DB) && defined(DBNSFP_DB_INDEX) && !ANNOTATE_NONCODING_SVS_ONLY && !ANNOTATE_SVS_ANNOTSV_ONLY){
         call subset_annotate_smallvars_with_db {
             input:
             input_vcf=annotated_vcf,
@@ -86,7 +88,7 @@ workflow annotate_variants {
     File small_annotated_vcf = select_first([subset_annotate_smallvars_with_db.vcf, annotated_vcf])
     
     # annotate SVs with frequency in SV databases and presence in dbVar Clinical SVs
-    if (defined(SV_DB_RDATA) && !ANNOTATE_NONCODING_SVS_ONLY){
+    if (defined(SV_DB_RDATA) && !ANNOTATE_NONCODING_SVS_ONLY && !ANNOTATE_SVS_ANNOTSV_ONLY){
         call annotate_sv_with_db {
             input:
             input_vcf=small_annotated_vcf,
@@ -94,8 +96,8 @@ workflow annotate_variants {
         }
     }
 
-    # annotate SVs with frequency in SV databases and presence in dbVar Clinical SVs
-    if (defined(SV_DB_RDATA) && ANNOTATE_NONCODING_SVS_ONLY){
+    # annotate non-coding SVs with frequency in SV databases and presence in dbVar Clinical SVs
+    if (defined(SV_DB_RDATA) && ANNOTATE_NONCODING_SVS_ONLY && !ANNOTATE_SVS_ANNOTSV_ONLY){
         call annotate_noncoding_sv_with_db {
             input:
             input_vcf=small_annotated_vcf,
@@ -103,7 +105,15 @@ workflow annotate_variants {
         }
     }
     
-    File sv_annotated_vcf = select_first([annotate_sv_with_db.vcf, annotate_noncoding_sv_with_db.vcf, small_annotated_vcf])
+    # annotate non-coding SVs with frequency in SV databases and presence in dbVar Clinical SVs
+    if (ANNOTATE_SVS_ANNOTSV_ONLY && !ANNOTATE_NONCODING_SVS_ONLY){
+        call annotate_sv_annotsv {
+            input:
+            input_vcf=small_annotated_vcf
+        }
+    }
+    
+    File sv_annotated_vcf = select_first([annotate_sv_with_db.vcf, annotate_noncoding_sv_with_db.vcf, annotate_sv_annotsv.vcf, small_annotated_vcf])
 
     # regenotype SVs with local pangenomes using vg to provide some in silico "validation"
     if (defined(BAM) && defined(BAM_INDEX) && defined(REFERENCE_FASTA)){
@@ -131,6 +141,7 @@ workflow annotate_variants {
     output {
         File vcf = final_vcf
         File? vcf_index = sort_vcf.vcf_index
+        File? annotsv_tsv = annotate_sv_annotsv.tsv
     }
 }
 
@@ -343,7 +354,7 @@ task annotate_noncoding_sv_with_db {
         # annotate SVs
         Rscript /opt/scripts/annotate_noncoding_svs.R svs.vcf.gz ~{sv_db_rdata} svs.annotated.vcf
         
-        # merge back SVs
+        # sort and compress vcf
         bcftools sort -Oz -o ~{basen}.svannotated.vcf.gz svs.annotated.vcf
     >>>
 
@@ -356,6 +367,59 @@ task annotate_noncoding_sv_with_db {
         cpu: threadCount
         disks: "local-disk " + diskSizeGB + " SSD"
         docker: "quay.io/jmonlong/svannotate_sveval@sha256:09a366b11db8cc26a2d19abd411f1884cad8a32f3c302804c05e2e282ffbd82d"
+        preemptible: 1
+    }
+}
+
+task annotate_sv_annotsv {
+    input {
+        File input_vcf
+        Int memSizeGB = 8
+        Int threadCount = 2
+        Int diskSizeGB = 5*round(size(input_vcf, "GB")) + 30
+    }
+
+    String basen = sub(sub(basename(input_vcf), ".vcf.bgz$", ""), ".vcf.gz$", "")
+    
+    command <<<
+        set -eux -o pipefail
+
+        # extract SVs
+        bcftools view -i "STRLEN(REF)>=30 | MAX(STRLEN(ALT))>=30" -Oz -o svs.vcf.gz ~{input_vcf}
+
+        # annotate SVs
+        AnnotSV -SvinputFile svs.vcf.gz -outputDir out_AnnotSV | tee ~{basen}.AnnotSV.log
+        touch out_AnnotSV/svs.annotated.tsv
+        mv out_AnnotSV/svs.annotated.tsv ~{basen}.annotsv.tsv
+
+        # find IDs for SVs with highest pathogenic score (>0.5)
+        SCORE_COL=`head -1 ~{basen}.annotsv.tsv | awk '{gsub("\t","\n"); print $0}' | grep -n ranking_score | cut -d ':' -f 1`
+        ID_COL=`head -1 ~{basen}.annotsv.tsv | awk '{gsub("\t","\n"); print $0}' | grep -nw ID | cut -d ':' -f 1`
+        cut -f $ID_COL,$SCORE_COL ~{basen}.annotsv.tsv | sed 1d | awk '{if($2>.5){print $1}}' | sort -u > cand.ids.txt
+        
+        # extract VCF for those SVs
+        zgrep "#" svs.vcf.gz > ~{basen}.svannotated.vcf
+        NC=`wc -l cand.ids.txt | awk '{print $1}'`
+        if [ $NC -gt 0 ]
+        then
+            zcat svs.vcf.gz | grep -w -f cand.ids.txt >> ~{basen}.svannotated.vcf
+        fi
+        
+        # sort and compress vcf
+        bcftools sort -Oz -o ~{basen}.svannotated.vcf.gz ~{basen}.svannotated.vcf
+    >>>
+
+    output {
+        File vcf = "~{basen}.svannotated.vcf.gz"
+        File tsv = "~{basen}.annotsv.tsv"
+        File log = "~{basen}.AnnotSV.log"
+    }
+
+    runtime {
+        memory: memSizeGB + " GB"
+        cpu: threadCount
+        disks: "local-disk " + diskSizeGB + " SSD"
+        docker: "quay.io/jmonlong/annotsv@sha256:4ae27d90993643d6047cf717095c3bdabc958ee6447439db902063b1e0a912f7"
         preemptible: 1
     }
 }
