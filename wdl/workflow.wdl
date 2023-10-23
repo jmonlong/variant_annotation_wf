@@ -86,15 +86,6 @@ workflow annotate_variants {
     }
     
     File small_annotated_vcf = select_first([subset_annotate_smallvars_with_db.vcf, annotated_vcf])
-    
-    # annotate SVs with frequency in SV databases and presence in dbVar Clinical SVs
-    if (defined(SV_DB_RDATA) && !ANNOTATE_NONCODING_SVS_ONLY && !ANNOTATE_SVS_ANNOTSV_ONLY){
-        call annotate_sv_with_db {
-            input:
-            input_vcf=small_annotated_vcf,
-            sv_db_rdata=select_first([SV_DB_RDATA])
-        }
-    }
 
     # annotate non-coding SVs with frequency in SV databases and presence in dbVar Clinical SVs
     if (defined(SV_DB_RDATA) && ANNOTATE_NONCODING_SVS_ONLY && !ANNOTATE_SVS_ANNOTSV_ONLY){
@@ -110,6 +101,18 @@ workflow annotate_variants {
         call annotate_sv_annotsv {
             input:
             input_vcf=small_annotated_vcf
+        }
+    }
+
+    # annotate SVs with frequency in SV databases and presence in dbVar Clinical SVs
+    if (defined(SV_DB_RDATA) && !ANNOTATE_NONCODING_SVS_ONLY){
+
+        File vcf_for_dbannot = select_first([annotate_sv_annotsv.vcf, small_annotated_vcf])
+        
+        call annotate_sv_with_db {
+            input:
+            input_vcf=vcf_for_dbannot,
+            sv_db_rdata=select_first([SV_DB_RDATA])
         }
     }
     
@@ -141,7 +144,6 @@ workflow annotate_variants {
     output {
         File vcf = final_vcf
         File? vcf_index = sort_vcf.vcf_index
-        File? annotsv_tsv = annotate_sv_annotsv.tsv
     }
 }
 
@@ -388,30 +390,15 @@ task annotate_sv_annotsv {
         bcftools view -i "STRLEN(REF)>=30 | MAX(STRLEN(ALT))>=30" -Oz -o svs.vcf.gz ~{input_vcf}
 
         # annotate SVs
-        AnnotSV -SvinputFile svs.vcf.gz -outputDir out_AnnotSV | tee ~{basen}.AnnotSV.log
-        touch out_AnnotSV/svs.annotated.tsv
-        mv out_AnnotSV/svs.annotated.tsv ~{basen}.annotsv.tsv
+        AnnotSV -SvinputFile svs.vcf.gz -vcf 1 -outputDir out_AnnotSV | tee ~{basen}.AnnotSV.log
+        touch out_AnnotSV/svs.annotated.vcf
 
-        # find IDs for SVs with highest pathogenic score (>0.5)
-        SCORE_COL=`head -1 ~{basen}.annotsv.tsv | awk '{gsub("\t","\n"); print $0}' | grep -n ranking_score | cut -d ':' -f 1`
-        ID_COL=`head -1 ~{basen}.annotsv.tsv | awk '{gsub("\t","\n"); print $0}' | grep -nw ID | cut -d ':' -f 1`
-        cut -f $ID_COL,$SCORE_COL ~{basen}.annotsv.tsv | sed 1d | awk '{if($2>.5){print $1}}' | sort -u > cand.ids.txt
-        
-        # extract VCF for those SVs
-        zgrep "#" svs.vcf.gz > ~{basen}.svannotated.vcf
-        NC=`wc -l cand.ids.txt | awk '{print $1}'`
-        if [ $NC -gt 0 ]
-        then
-            zcat svs.vcf.gz | grep -w -f cand.ids.txt >> ~{basen}.svannotated.vcf
-        fi
-        
         # sort and compress vcf
-        bcftools sort -Oz -o ~{basen}.svannotated.vcf.gz ~{basen}.svannotated.vcf
+        bcftools sort -Oz -o ~{basen}.svannotated.vcf.gz out_AnnotSV/svs.annotated.vcf        
     >>>
 
     output {
         File vcf = "~{basen}.svannotated.vcf.gz"
-        File tsv = "~{basen}.annotsv.tsv"
         File log = "~{basen}.AnnotSV.log"
     }
 
@@ -419,7 +406,7 @@ task annotate_sv_annotsv {
         memory: memSizeGB + " GB"
         cpu: threadCount
         disks: "local-disk " + diskSizeGB + " SSD"
-        docker: "quay.io/jmonlong/annotsv@sha256:4ae27d90993643d6047cf717095c3bdabc958ee6447439db902063b1e0a912f7"
+        docker: "quay.io/jmonlong/annotsv@sha256:b5bb0694e16e04a86240a3a77c38fb3a59852dbdd44d0dda5a63b26659229c2a"
         preemptible: 1
     }
 }
