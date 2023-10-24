@@ -13,7 +13,6 @@ workflow denovo_svs {
         VCF_P1: "Input VCF from parent 1. Can be gzipped/bgzipped."
         VCF_P2: "Input VCF from parent 2. Can be gzipped/bgzipped."
         SV_DB_RDATA: "RData file with the databases used for SV annotation (e.g. SV catalogs, dbVar clinical SVs, DGV)."
-        SPLIT_MULTIAL: "Should multiallelic variants be split into biallelic records? Default: true"
         SORT_INDEX_VCF: "Should the output VCF be sorted, bgzipped, and indexed? Default: true"
         BAM: "Sorted and indexed BAM with the long reads for the child. Optional. If present, SVs will be re-genotyped to help filtering false-positives out."
         BAI: "Index for BAM of the child"
@@ -147,7 +146,7 @@ task annotate_denovo_svs {
         memory: memSizeGB + " GB"
         cpu: threadCount
         disks: "local-disk " + diskSizeGB + " SSD"
-        docker: "quay.io/jmonlong/svannotate_sveval@sha256:09a366b11db8cc26a2d19abd411f1884cad8a32f3c302804c05e2e282ffbd82d"
+        docker: "quay.io/jmonlong/svannotate_sveval@sha256:c4a0ac3dd9176cfc0bec81980d254fa18eb62e0d390d2d01b54c57441a86a65c"
         preemptible: 1
     }
 }
@@ -200,7 +199,7 @@ task genotype_svs_trio_with_vg {
         memory: memSizeGB + " GB"
         cpu: threadCount
         disks: "local-disk " + diskSizeGB + " SSD"
-        docker: "quay.io/jmonlong/svvalidate_vgcall@sha256:85db4063b266784baeb7198e510a4af57427232a17248db331aacc64138aab4f"
+        docker: "quay.io/jmonlong/svvalidate_vgcall@sha256:15b9b2837c57f9d44452b73ea94b8cce54387eb65d52dd3f22251c09dc1a66ba"
         preemptible: 1
     }
 }
