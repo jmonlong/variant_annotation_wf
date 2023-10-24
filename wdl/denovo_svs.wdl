@@ -135,7 +135,7 @@ task annotate_denovo_svs {
         Rscript /opt/scripts/annotate_denovo_svs.R svs.vcf.gz svs.p1.vcf.gz svs.p2.vcf.gz ~{sv_db_rdata} svs.denovo.vcf
         
         # merge back SVs
-        bcftools sort -Oz -o ~{basen}.svs_denovo.vcf.gz svs.annotated.vcf
+        bcftools sort -Oz -o ~{basen}.svs_denovo.vcf.gz svs.denovo.vcf
     >>>
 
     output {
