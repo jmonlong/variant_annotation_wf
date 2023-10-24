@@ -406,7 +406,7 @@ task annotate_sv_annotsv {
         memory: memSizeGB + " GB"
         cpu: threadCount
         disks: "local-disk " + diskSizeGB + " SSD"
-        docker: "quay.io/jmonlong/annotsv@sha256:b5bb0694e16e04a86240a3a77c38fb3a59852dbdd44d0dda5a63b26659229c2a"
+        docker: "quay.io/jmonlong/annotsv:v3.3.6"
         preemptible: 1
     }
 }

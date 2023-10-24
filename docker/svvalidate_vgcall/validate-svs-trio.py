@@ -28,10 +28,12 @@ def write_single_sv_vcf(sv_info, vcf_path):
         stderr=sys.stderr, universal_newlines=True)
     return (vcf_path_gz)
 
+
 # function to evaluate a SV
 # sv_info is a dict with a 'svid', position and ref/alt sequences information
-def evaluate_sv(sv_info, ref_fa_path, bam_path, output_dir,
+def evaluate_sv(sv_info, ref_fa_path, bam_paths, output_dir,
                 debug_mode=False, nb_cores=2, chr_lens={}):
+    svid = sv_info['svid']
     dump = open('/dev/null', 'w')
     # make VCF with just the one SV
     vcf_path = os.path.join(output_dir, sv_info['svid'] + ".vcf")
@@ -64,58 +66,68 @@ def evaluate_sv(sv_info, ref_fa_path, bam_path, output_dir,
     with open(vg_output_path, 'w') as file:
         run(construct_args, check=True, stdout=file,
             stderr=sys.stderr, universal_newlines=True)
-    # extract reads
-    extract_args = ["samtools", "view", "-h", bam_path, region_coord]
-    sam_output_path = os.path.join(output_dir, sv_info['svid'] + ".sam")
-    with open(sam_output_path, 'w') as file:
-        run(extract_args, check=True, stdout=file,
-            stderr=sys.stderr, universal_newlines=True)
-    extract_args = ["samtools", "fasta", sam_output_path]
-    fa_output_path = os.path.join(output_dir, sv_info['svid'] + ".fasta")
-    with open(fa_output_path, 'w') as file:
-        run(extract_args, check=True, stdout=file,
-            stderr=dump, universal_newlines=True)
-    # align reads to pangenome
+    # convert to GFA for mapping
     convert_args = ["vg", "convert", "-f", vg_output_path]
-    gfa_output_path = os.path.join(output_dir, sv_info['svid'] + ".gfa")
+    gfa_output_path = os.path.join(output_dir, svid + ".gfa")
     with open(gfa_output_path, 'w') as file:
         run(convert_args, check=True, stdout=file,
             stderr=sys.stderr, universal_newlines=True)
-    map_args = ["minigraph", "-t", str(nb_cores),
-                "-c", gfa_output_path, fa_output_path]
-    gaf_output_path = os.path.join(output_dir, sv_info['svid'] + ".gaf")
-    with open(gaf_output_path, 'w') as file:
-        run(map_args, check=True, stdout=file,
-            stderr=dump, universal_newlines=True)
-    # genotype SV
-    pack_output_path = os.path.join(output_dir, sv_info['svid'] + ".pack")
-    pack_args = ["vg", "pack", "-t", str(nb_cores), "-e",
-                 "-x", vg_output_path, "-o", pack_output_path,
-                 '-a', gaf_output_path]
-    run(pack_args, check=True, stdout=sys.stdout,
-        stderr=sys.stderr, universal_newlines=True)
-    call_args = ["vg", "call", "-t", str(nb_cores),
-                 "-k", pack_output_path, '-v', vcf_path, vg_output_path]
-    call_output_path = os.path.join(output_dir,
-                                    sv_info['svid'] + ".called.vcf")
-    with open(call_output_path, 'w') as file:
-        run(call_args, check=True, stdout=file,
+    # genotype each sample
+    bam_paths = bam_paths.split(',')
+    samp_labs = ['child', 'p1', 'p2']
+    score = {'prop': [-1] * 3, 'ad': [''] * 3}
+    for ii in range(len(bam_paths)):
+        bam_path = bam_paths[ii]
+        sl = samp_labs[ii]
+        # extract reads
+        extract_args = ["samtools", "view", "-h", bam_path, region_coord]
+        sam_output_path = os.path.join(output_dir, svid + "_" + sl + ".sam")
+        with open(sam_output_path, 'w') as file:
+            run(extract_args, check=True, stdout=file,
+                stderr=sys.stderr, universal_newlines=True)
+        extract_args = ["samtools", "fasta", sam_output_path]
+        fa_output_path = os.path.join(output_dir, svid + "_" + sl + ".fasta")
+        with open(fa_output_path, 'w') as file:
+            run(extract_args, check=True, stdout=file,
+                stderr=dump, universal_newlines=True)
+        # align reads to pangenome
+        map_args = ["minigraph", "-t", str(nb_cores),
+                    "-c", gfa_output_path, fa_output_path]
+        gaf_output_path = os.path.join(output_dir, svid + "_" + sl + ".gaf")
+        with open(gaf_output_path, 'w') as file:
+            run(map_args, check=True, stdout=file,
+                stderr=dump, universal_newlines=True)
+        # genotype SV
+        pack_output_path = os.path.join(output_dir, svid + "_" + sl + ".pack")
+        pack_args = ["vg", "pack", "-t", str(nb_cores), "-e",
+                     "-x", vg_output_path, "-o", pack_output_path,
+                     '-a', gaf_output_path]
+        run(pack_args, check=True, stdout=sys.stdout,
             stderr=sys.stderr, universal_newlines=True)
-    # update SV information or return a score
-    score = {'prop': -1, 'ad': ''}
-    for variant in VCF(call_output_path):
-        ad = variant.format('AD')[0]
-        dp = ad[0] + ad[1]
-        score['ad'] = '{}|{}'.format(ad[0], ad[1])
-        if dp == 0:
-            score['prop'] = 0
-        else:
-            score['prop'] = float(ad[1]) / dp
+        call_args = ["vg", "call", "-t", str(nb_cores),
+                     "-k", pack_output_path, '-v', vcf_path, vg_output_path]
+        call_output_path = os.path.join(output_dir,
+                                        svid + "_" + sl + ".called.vcf")
+        with open(call_output_path, 'w') as file:
+            run(call_args, check=True, stdout=file,
+                stderr=sys.stderr, universal_newlines=True)
+        # update SV information or return a score
+        for variant in VCF(call_output_path):
+            ad = variant.format('AD')[0]
+            dp = ad[0] + ad[1]
+            score['ad'][ii] = '{}|{}'.format(ad[0], ad[1])
+            if dp == 0:
+                score['prop'][ii] = 0
+            else:
+                score['prop'][ii] = float(ad[1]) / dp
+        # remove intermediate files
+        if not debug_mode:
+            for ff in [sam_output_path, fa_output_path,
+                       gaf_output_path, pack_output_path, call_output_path]:
+                os.remove(ff)
     # remove intermediate files
     if not debug_mode:
-        for ff in [sam_output_path, vg_output_path,
-                   fa_output_path, gfa_output_path,
-                   gaf_output_path, pack_output_path, call_output_path,
+        for ff in [vg_output_path, gfa_output_path,
                    vcf_path, vcf_path_gz, vcf_path_gz + '.tbi']:
             os.remove(ff)
     dump.close()
@@ -134,7 +146,7 @@ parser.add_argument('-t', default=2,
                     help='number of threads used by the tools (vg and minigraph))')
 args = parser.parse_args()
 
-DEBUG_MODE = True
+DEBUG_MODE = False
 
 # extract chromosome lengths from the .fai (2nd column)
 chr_lens = {}
@@ -149,6 +161,18 @@ vcf.add_info_to_header({'ID': 'RS_PROP',
                         'Type': 'Float', 'Number': '1'})
 vcf.add_info_to_header({'ID': 'RS_AD',
                         'Description': 'Number of reads supporting the ref|alt (from vg genotyping)',
+                        'Type': 'String', 'Number': '1'})
+vcf.add_info_to_header({'ID': 'RS_PROP_P1',
+                        'Description': 'Proportion of supporting reads in parent 1 (from vg genotyping)',
+                        'Type': 'Float', 'Number': '1'})
+vcf.add_info_to_header({'ID': 'RS_AD_P1',
+                        'Description': 'Number of reads supporting the ref|alt in parent 1 (from vg genotyping)',
+                        'Type': 'String', 'Number': '1'})
+vcf.add_info_to_header({'ID': 'RS_PROP_P2',
+                        'Description': 'Proportion of supporting reads in parent 2 (from vg genotyping)',
+                        'Type': 'Float', 'Number': '1'})
+vcf.add_info_to_header({'ID': 'RS_AD_P2',
+                        'Description': 'Number of reads supporting the ref|alt in parent 2 (from vg genotyping)',
                         'Type': 'String', 'Number': '1'})
 vcf_o = Writer(args.o, vcf)
 
@@ -169,8 +193,12 @@ for variant in vcf:
         score = evaluate_sv(svinfo, args.f, args.b, args.d,
                             DEBUG_MODE, nb_cores=args.t,
                             chr_lens=chr_lens)
-        variant.INFO["RS_PROP"] = score['prop']
-        variant.INFO["RS_AD"] = score['ad']
+        variant.INFO["RS_PROP"] = score['prop'][0]
+        variant.INFO["RS_AD"] = score['ad'][0]
+        variant.INFO["RS_PROP_P1"] = score['prop'][1]
+        variant.INFO["RS_AD_P1"] = score['ad'][1]
+        variant.INFO["RS_PROP_P2"] = score['prop'][2]
+        variant.INFO["RS_AD_P2"] = score['ad'][2]
     vcf_o.write_record(variant)
 
 vcf_o.close()

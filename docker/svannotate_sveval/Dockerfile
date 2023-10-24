@@ -30,6 +30,8 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 ## R with sveval package
+RUN Rscript -e "install.packages('XML', repos = 'http://www.omegahat.net/R')"
+
 ADD install.R /home
 
 RUN R -f /home/install.R
@@ -48,5 +50,6 @@ RUN wget --no-check-certificate https://github.com/samtools/bcftools/releases/do
 WORKDIR /opt/scripts
 ADD annotate_svs.R /opt/scripts
 ADD annotate_noncoding_svs.R /opt/scripts
+ADD annotate_denovo_svs.R /opt/scripts
 
 WORKDIR /home

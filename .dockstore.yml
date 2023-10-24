@@ -6,3 +6,9 @@ workflows:
     authors:
       - name: Jean Monlong
         email: jmonlong@ucsc.edu
+  - name: denovo_svs
+    subclass: WDL
+    primaryDescriptorPath: /wdl/denovo_svs.wdl
+    authors:
+      - name: Jean Monlong
+        email: jmonlong@ucsc.edu
