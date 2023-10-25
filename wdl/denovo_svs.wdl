@@ -12,13 +12,12 @@ workflow denovo_svs {
         VCF: "Input VCF from the child. Can be gzipped/bgzipped."
         VCF_P1: "Input VCF from parent 1. Can be gzipped/bgzipped."
         VCF_P2: "Input VCF from parent 2. Can be gzipped/bgzipped."
-        SV_DB_RDATA: "RData file with the databases used for SV annotation (e.g. SV catalogs, dbVar clinical SVs, DGV)."
-        SORT_INDEX_VCF: "Should the output VCF be sorted, bgzipped, and indexed? Default: true"
-        BAM: "Sorted and indexed BAM with the long reads for the child. Optional. If present, SVs will be re-genotyped to help filtering false-positives out."
+        SV_DB_RDATA: "RData file with the databases used for SV annotation (e.g. SV catalogs, simple repeat annotation)."
+        BAM: "Sorted and indexed BAM with the long reads for the child. Optional. If present, SVs will be re-genotyped to help filtering out false-positives."
         BAI: "Index for BAM of the child"
-        BAM_P1: "Sorted and indexed BAM with the long reads for parent 1. Optional. If present, SVs will be re-genotyped to help filtering false-positives out."
+        BAM_P1: "Sorted and indexed BAM with the long reads for parent 1. Optional. If present, SVs will be re-genotyped to help filtering out false-positives."
         BAI_P1: "Index for BAM of parent 1"
-        BAM_P2: "Sorted and indexed BAM with the long reads for parent 1. Optional. If present, SVs will be re-genotyped to help filtering false-positives out."
+        BAM_P2: "Sorted and indexed BAM with the long reads for parent 1. Optional. If present, SVs will be re-genotyped to help filtering out false-positives."
         BAI_P2: "Index for BAM of parent 1"
         REFERENCE_FASTA: "Reference fasta. Optional. Used for SV in silico validation when BAM and BAI are provided."
     }
@@ -35,7 +34,6 @@ workflow denovo_svs {
         File? BAM_P2
         File? BAI_P2
         File? REFERENCE_FASTA
-        Boolean SORT_INDEX_VCF = true
     }
 
     # annotate de novo candidate SVs (in child but not parents) with allele frequency
@@ -62,51 +60,11 @@ workflow denovo_svs {
         }
     }
 
-    File sv_vcf = select_first([genotype_svs_trio_with_vg.vcf, annotate_denovo_svs.vcf])
-
-    # sort annotated VCF
-    if (SORT_INDEX_VCF){
-        call sort_vcf {
-            input:
-            input_vcf=sv_vcf
-        }
-    }
-    
-    File final_vcf = select_first([sort_vcf.vcf, sv_vcf])
-    
+    File final_vcf = select_first([genotype_svs_trio_with_vg.vcf_stringent, annotate_denovo_svs.vcf])
+        
     output {
         File vcf = final_vcf
-        File? vcf_index = sort_vcf.vcf_index
-    }
-}
-
-task sort_vcf {
-    input {
-        File input_vcf
-        Int memSizeGB = 4
-        Int diskSizeGB = 5*round(size(input_vcf, "GB")) + 20
-    }
-
-    String basen = sub(sub(basename(input_vcf), ".vcf.bgz$", ""), ".vcf.gz$", "")
-    
-    command <<<
-    set -eux -o pipefail
-
-    bcftools sort -Oz -o ~{basen}.formatted.vcf.gz ~{input_vcf}
-    bcftools index -t -o ~{basen}.formatted.vcf.gz.tbi ~{basen}.formatted.vcf.gz
-    >>>
-    
-    output {
-        File vcf = "~{basen}.formatted.vcf.gz"
-        File? vcf_index = "~{basen}.formatted.vcf.gz.tbi"
-    }
-    
-    runtime {
-        memory: memSizeGB + " GB"
-        cpu: 1
-        disks: "local-disk " + diskSizeGB + " SSD"
-        docker: "quay.io/biocontainers/bcftools@sha256:f3a74a67de12dc22094e299fbb3bcd172eb81cc6d3e25f4b13762e8f9a9e80aa"
-        preemptible: 1
+        File? vcf_lenient = genotype_svs_trio_with_vg.vcf_lenient
     }
 }
 
@@ -126,15 +84,15 @@ task annotate_denovo_svs {
     command <<<
         set -eux -o pipefail
 
-        # extract SVs and small variants
-        bcftools view -i "STRLEN(REF)>=30 | MAX(STRLEN(ALT))>=30" -Oz -o svs.vcf.gz ~{input_vcf}
-        bcftools view -i "STRLEN(REF)>=30 | MAX(STRLEN(ALT))>=30" -Oz -o svs.p1.vcf.gz ~{input_vcf_p1}
-        bcftools view -i "STRLEN(REF)>=30 | MAX(STRLEN(ALT))>=30" -Oz -o svs.p2.vcf.gz ~{input_vcf_p2}
+        # extract SVs for trio
+        bcftools view -i "STRLEN(REF)>=40 | MAX(STRLEN(ALT))>=40" -Oz -o svs.vcf.gz ~{input_vcf}
+        bcftools view -i "STRLEN(REF)>=40 | MAX(STRLEN(ALT))>=40" -Oz -o svs.p1.vcf.gz ~{input_vcf_p1}
+        bcftools view -i "STRLEN(REF)>=40 | MAX(STRLEN(ALT))>=40" -Oz -o svs.p2.vcf.gz ~{input_vcf_p2}
 
         # annotate SVs
         Rscript /opt/scripts/annotate_denovo_svs.R svs.vcf.gz svs.p1.vcf.gz svs.p2.vcf.gz ~{sv_db_rdata} svs.denovo.vcf
         
-        # merge back SVs
+        # sort and gzip VCF
         bcftools sort -Oz -o ~{basen}.svs_denovo.vcf.gz svs.denovo.vcf
     >>>
 
@@ -184,15 +142,22 @@ task genotype_svs_trio_with_vg {
         ln -s ~{bam_p2} reads.p2.bam
         ln -s ~{bai_p2} reads.p2.bam.bai
 
+        ## genotype only rare SVs (common SVs are unlikely to be real de novo)
+        bcftools view -i "AF<0.01" -o input.vcf.gz -Oz ~{input_vcf}
+        
         ## run the validation script in parallel across smCores cores
-        ln -s ~{input_vcf} input.vcf.gz
         snakemake --snakefile /opt/scripts/Snakefile_trio --cores ~{smCores}
 
-        mv output.vcf.gz ~{basen}.svval.vcf.gz
+        ## extract two sets of de novo candidates
+        ## stringent: some evidence in child, no evidence in parents
+        bcftools view -i "RS_PROP_P1==0 && RS_PROP_P2==0 && RS_PROP>0" -o ~{basen}.denovo.stringent.vcf.gz -Oz output.vcf.gz
+        ## lenient: some evidence in child, low evidence in parents
+        bcftools view -i "RS_PROP_P1<0.1 && RS_PROP_P2<0.1 && RS_PROP>0" -o ~{basen}.denovo.lenient.vcf.gz -Oz output.vcf.gz
     >>>
 
     output {
-        File vcf = "~{basen}.svval.vcf.gz"
+        File vcf_stringent = "~{basen}.denovo.stringent.vcf.gz"
+        File vcf_lenient = "~{basen}.denovo.lenient.vcf.gz"
     }
 
     runtime {
