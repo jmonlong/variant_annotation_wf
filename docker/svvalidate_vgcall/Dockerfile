@@ -26,6 +26,13 @@ RUN apt-get update && \
     apt-transport-https software-properties-common dirmngr gpg-agent \
     && rm -rf /var/lib/apt/lists/*
 
+## bcftools
+RUN wget --no-check-certificate https://github.com/samtools/bcftools/releases/download/1.17/bcftools-1.17.tar.bz2 && \
+        tar -xjf bcftools-1.17.tar.bz2 && \
+        cd bcftools-1.17 && \
+        ./configure && make && make install && \
+        cd .. && rm -rf bcftools-1.17.tar.bz2
+
 ## samtools
 RUN wget --no-check-certificate https://github.com/samtools/samtools/releases/download/1.17/samtools-1.17.tar.bz2 && \
     tar -xjvf samtools-1.17.tar.bz2 && \
