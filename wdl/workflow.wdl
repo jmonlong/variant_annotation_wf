@@ -267,7 +267,7 @@ task annotate_sv_with_db {
         memory: memSizeGB + " GB"
         cpu: threadCount
         disks: "local-disk " + diskSizeGB + " SSD"
-        docker: "quay.io/jmonlong/svannotate_sveval@sha256:09a366b11db8cc26a2d19abd411f1884cad8a32f3c302804c05e2e282ffbd82d"
+        docker: "quay.io/jmonlong/svannotate_sveval@sha256:abe0a34a2d97b2cc7b9ac87fa765934ab4cd27861291d6c3ed035b3449acd281"
         preemptible: 1
     }
 }
