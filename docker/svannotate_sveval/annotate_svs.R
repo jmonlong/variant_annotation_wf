@@ -31,7 +31,9 @@ splitMultiAls <- function(vcf.o){
   ll = lapply(unlist(lapply(rr.gr$ALT, as.character)), function(x) DNAStringSet(x))
   fixed(res.m)["ALT"] <- DNAStringSetList(ll)
   ## also splits the AF field appropriately
-  info(res.m)$AF = as(unlist(af.l), "NumericList")
+  if(!is.null(af.l)){
+    info(res.m)$AF = as(unlist(af.l), "NumericList")
+  }
   ## merge back with records that were biallelic
   rbind(res.b, res.m)
 }
@@ -69,6 +71,7 @@ annotateFrequency <- function(svs, sv.catalogs, simprep=NULL,
   ## report the maximum AF across the catalogs
   return(apply(af.mat, 1, max))
 }
+
 annotateOverlap <- function(svs, svdb){
   svdb.ol = rep(NA, length(svs))
   ol = svOverlap(svs, svdb)
@@ -80,8 +83,8 @@ annotateOverlap <- function(svs, svdb){
   }
   svdb.ol
 }
-annotateSVs <-function(vcf.o){
-  ## make a GRanges object
+
+annotateSVs <-function(vcf.o){## make a GRanges object
   svs.gr = rowRanges(vcf.o)
   svs.gr$ii = 1:length(vcf.o)
   names(svs.gr) = NULL
@@ -93,7 +96,7 @@ annotateSVs <-function(vcf.o){
     chrs = paste0('chr', chrs)
   }
   ## keep only non-ALT contigs
-  svs.gr[which(as.character(seqnames(svs.gr)) %in% chrs)]
+  svs.gr = svs.gr[which(as.character(seqnames(svs.gr)) %in% chrs)]
   ## rename tandem duplications into DUP
   svs.gr$type = ifelse(svs.gr$type=='DUP:TANDEM', "DUP", svs.gr$type)
   svs.gr$type = ifelse(svs.gr$type=='DUP', "INS", svs.gr$type)
@@ -101,21 +104,24 @@ annotateSVs <-function(vcf.o){
   svs.gr$af = suppressWarnings(annotateFrequency(svs.gr, sv.catalogs, simprep=sr))
   svs.gr$clinsv = suppressWarnings(annotateOverlap(svs.gr, clinsv))
   svs.gr$dgv = suppressWarnings(annotateOverlap(svs.gr, dgva))
+  ## annotate svs near enhancer of disease genes
+  svs.gr$enh.dis = suppressWarnings(countOverlaps(svs.gr, c(dis.enh, dis.enh.enc), maxgap=10))
   ## header for the new INFO fields
   info.h = S4Vectors::DataFrame(
-                        Number=rep('1', 3), Type=rep('Float', 3),
+                        Number=rep('1', 4), Type=c(rep('Float', 3), "Integer"),
                         Description=c(
                           'Allele frequency',
                           'Overlap score with the most similar SV in dbVar Clinical SVs',
-                          'Overlap score with the most similar SV in DGV'))
-  rownames(info.h) = c('AF', 'CLINSV', 'DGV')
+                          'Overlap score with the most similar SV in DGV',
+                          'Number of overlapped enhancers (of disease genes)'))
+  rownames(info.h) = c('AF', 'CLINSV', 'DGV', 'ENHDIS')
   info(header(vcf.o)) = rbind(info(header(vcf.o)), info.h)
   ## add information back to the vcf object
-  info(vcf.o)$AF[svs.gr$ii] = signif(svs.gr$af, 4)
-  info(vcf.o)$CLINSV = NA
-  info(vcf.o)$CLINSV[svs.gr$ii] = round(svs.gr$clinsv, 4)
-  info(vcf.o)$DGV = NA
-  info(vcf.o)$DGV[svs.gr$ii] = round(svs.gr$dgv, 4)
+  vcf.o = vcf.o[svs.gr$ii]
+  info(vcf.o)$AF = signif(svs.gr$af, 4)
+  info(vcf.o)$CLINSV = round(svs.gr$clinsv, 4)
+  info(vcf.o)$DGV = round(svs.gr$dgv, 4)
+  info(vcf.o)$ENHDIS = svs.gr$enh.dis
   ## return new vcf object
   return(vcf.o)
 }
