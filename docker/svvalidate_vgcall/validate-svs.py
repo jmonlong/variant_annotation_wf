@@ -128,6 +128,8 @@ parser.add_argument('-f', help='reference FASTA file (indexed)', required=True)
 parser.add_argument('-v', help='variants in VCF (can be bgzipped)',
                     required=True)
 parser.add_argument('-d', help='output directory', default='temp_valsv')
+parser.add_argument('-F', default=0.01, type=float,
+                    help='maximum frequency (AF) to annotate. Default 0.01')
 parser.add_argument('-o', default='out.vcf',
                     help='output (annotated) VCF (will be bgzipped if ending in .gz)')
 parser.add_argument('-t', default=2,
@@ -166,11 +168,15 @@ for variant in vcf:
         svinfo['svid'] = '{}_{}_{}'.format(variant.CHROM,
                                            variant.start,
                                            seq.hexdigest())
-        score = evaluate_sv(svinfo, args.f, args.b, args.d,
-                            DEBUG_MODE, nb_cores=args.t,
-                            chr_lens=chr_lens)
-        variant.INFO["RS_PROP"] = score['prop']
-        variant.INFO["RS_AD"] = score['ad']
+        if variant.INFO['AF'] > args.F:
+            variant.INFO["RS_PROP"] = 2
+            variant.INFO["RS_AD"] = 'NA'
+        else:
+            score = evaluate_sv(svinfo, args.f, args.b, args.d,
+                                DEBUG_MODE, nb_cores=args.t,
+                                chr_lens=chr_lens)
+            variant.INFO["RS_PROP"] = score['prop']
+            variant.INFO["RS_AD"] = score['ad']
     vcf_o.write_record(variant)
 
 vcf_o.close()
