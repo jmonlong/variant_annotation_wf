@@ -405,7 +405,7 @@ task annotate_sv_annotsv {
         set -eux -o pipefail
 
         # extract SVs and small variants
-        bcftools view -i "STRLEN(REF)>=30 | MAX(STRLEN(ALT))>=30" -Oz -o svs.vcf.gz ~{input_vcf}
+        bcftools view -i "STRLEN(REF)>=30 | MAX(STRLEN(ALT))>=30" ~{input_vcf} | bcftools norm -d all -Oz -o svs.vcf.gz
         bcftools view -i "STRLEN(REF)<30 & MAX(STRLEN(ALT))<30" ~{input_vcf} | bcftools sort -Oz -o smallvars.vcf.gz
 
         # annotate SVs
