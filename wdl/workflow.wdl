@@ -94,9 +94,15 @@ workflow annotate_variants {
     # note: first filter small variants to keep those with high/moderate impact or with predicted loss of function (speeds up DB matching a lot)
     #       all SVs kept
     if (defined(GNOMAD_VCF) && defined(GNOMAD_VCF_INDEX) && defined(CLINVAR_VCF) && defined(CLINVAR_VCF_INDEX) && defined(DBNSFP_DB) && defined(DBNSFP_DB_INDEX)){
+
+        call split_small_large_variants {
+            input:
+            input_vcf=current_vcf_annotsv
+        }
+        
         call subset_annotate_smallvars_with_db {
             input:
-            input_vcf=current_vcf_annotsv,
+            input_vcf=split_small_large_variants.small_vcf,
             gnomad_vcf=select_first([GNOMAD_VCF]),
             gnomad_vcf_index=select_first([GNOMAD_VCF_INDEX]),
             clinvar_vcf=select_first([CLINVAR_VCF]),
@@ -104,9 +110,16 @@ workflow annotate_variants {
             dbnsfp_db = select_first([DBNSFP_DB]),
             dbnsfp_db_index = select_first([DBNSFP_DB_INDEX])
         }
+
+        call combine_small_large_variants {
+            input:
+            small_vcf=subset_annotate_smallvars_with_db.vcf,
+            sv_vcf=split_small_large_variants.sv_vcf
+        }
+        
     }
     
-    File current_vcf_small = select_first([subset_annotate_smallvars_with_db.vcf, current_vcf_annotsv])
+    File current_vcf_small = select_first([combine_small_large_variants.vcf, current_vcf_annotsv])
 
     # regenotype SVs with local pangenomes using vg to provide some in silico "validation"
     if (defined(BAM) && defined(BAM_INDEX) && defined(REFERENCE_FASTA)){
@@ -315,6 +328,70 @@ task annotate_sv_annotsv {
     }
 }
 
+
+task split_small_large_variants {
+    input {
+        File input_vcf
+        Int memSizeGB = 8
+        Int threadCount = 1
+        Int diskSizeGB = 5*round(size(input_vcf, "GB")) + 30
+    }
+
+    command <<<
+        set -eux -o pipefail
+
+        # extract SVs and small variants
+        bcftools view -i "STRLEN(REF)>=30 | MAX(STRLEN(ALT))>=30" -Oz -o svs.vcf.gz ~{input_vcf}
+        bcftools view -i "STRLEN(REF)<30 & MAX(STRLEN(ALT))<30" ~{input_vcf} | bcftools sort -Oz -o smallvars.vcf.gz
+    >>>
+
+    output {
+        File small_vcf = "smallvars.vcf.gz"
+        File sv_vcf = "svs.vcf.gz"
+    }
+
+    runtime {
+        memory: memSizeGB + " GB"
+        cpu: threadCount
+        disks: "local-disk " + diskSizeGB + " SSD"
+        docker: "quay.io/jmonlong/svannotate_sveval@sha256:abe0a34a2d97b2cc7b9ac87fa765934ab4cd27861291d6c3ed035b3449acd281"
+        preemptible: 1
+    }
+}
+
+
+task combine_small_large_variants {
+    input {
+        File small_vcf
+        File sv_vcf
+        Int memSizeGB = 8
+        Int threadCount = 1
+        Int diskSizeGB = 5*round(size(small_vcf, "GB") + size(sv_vcf, "GB")) + 30
+    }
+
+    command <<<
+        set -eux -o pipefail
+
+        bcftools sort -Oz -o smallvars.vcf.gz ~{small_vcf}
+        bcftools index -t smallvars.vcf.gz
+        bcftools sort -Oz -o svs.vcf.gz ~{sv_vcf}
+        bcftools index -t svs.vcf.gz
+        bcftools concat -a -Oz -o smallvars.svs.vcf.gz svs.vcf.gz smallvars.vcf.gz
+    >>>
+
+    output {
+        File vcf = "smallvars.svs.vcf.gz"
+    }
+
+    runtime {
+        memory: memSizeGB + " GB"
+        cpu: threadCount
+        disks: "local-disk " + diskSizeGB + " SSD"
+        docker: "quay.io/jmonlong/svannotate_sveval@sha256:abe0a34a2d97b2cc7b9ac87fa765934ab4cd27861291d6c3ed035b3449acd281"
+        preemptible: 1
+    }
+}
+
 task subset_annotate_smallvars_with_db {
     input {
         File input_vcf
@@ -342,14 +419,10 @@ task subset_annotate_smallvars_with_db {
         ln -s ~{clinvar_vcf_index} clinvar.vcf.bgz.tbi
         ln -s ~{dbnsfp_db} dbnsfp.txt.gz
         ln -s ~{dbnsfp_db_index} dbnsfp.txt.gz.tbi
-
-        # extract SVs and small variants
-        bcftools view -i "STRLEN(REF)>=30 | MAX(STRLEN(ALT))>=30" -Oz -o svs.vcf.gz ~{input_vcf}
-        bcftools view -i "STRLEN(REF)<30 & MAX(STRLEN(ALT))<30" ~{input_vcf} | bcftools sort -Oz -o smallvars.vcf.gz
         
         ## filter variants to keep those with high/moderate impact or with predicted loss of function
         ## then annotate with their frequency in gnomAD
-        zcat smallvars.vcf.gz | SnpSift -Xmx1g filter "(ANN[*].IMPACT has 'HIGH') | (ANN[*].IMPACT has 'MODERATE') | ((exists LOF[*].PERC) & (LOF[*].PERC > 0.9))" | \
+        zcat ~{input_vcf} | SnpSift -Xmx1g filter "(ANN[*].IMPACT has 'HIGH') | (ANN[*].IMPACT has 'MODERATE') | ((exists LOF[*].PERC) & (LOF[*].PERC > 0.9))" | \
             SnpSift -Xmx~{snpsiftMem}g annotate -noId -v gnomad.vcf.bgz | gzip > smallvars.gnomad.vcf.gz
 
         ## annotate IDs with clinvar IDs and add the CLNSIG INFO field
@@ -357,13 +430,7 @@ task subset_annotate_smallvars_with_db {
         
         ## annotate IDs with dbNSFP prediction scores and conservation scores
         zcat smallvars.gnomad.clinvar.vcf.gz > smallvars.gnomad.clinvar.vcf
-        SnpSift -Xmx~{snpsiftMem}g dbnsfp -v -db dbnsfp.txt.gz -f GERP++_RS,CADD_raw,CADD_phred,MetaRNN_score,MetaRNN_pred,ALFA_Total_AF smallvars.gnomad.clinvar.vcf | gzip > smallvars.gnomad.clinvar.dbnsfp.vcf.gz
-
-        # merge back SVs
-        bcftools sort -Oz -o smallvars.annotated.vcf.gz smallvars.gnomad.clinvar.dbnsfp.vcf.gz
-        bcftools index -t smallvars.annotated.vcf.gz
-        bcftools index -t svs.vcf.gz
-        bcftools concat -a -Oz -o ~{basen}.gnomad.clinvar.dbnsfp.vcf.gz svs.vcf.gz smallvars.annotated.vcf.gz
+        SnpSift -Xmx~{snpsiftMem}g dbnsfp -v -db dbnsfp.txt.gz -f GERP++_RS,CADD_raw,CADD_phred,MetaRNN_score,MetaRNN_pred,ALFA_Total_AF smallvars.gnomad.clinvar.vcf | gzip > ~{basen}.gnomad.clinvar.dbnsfp.vcf.gz
     >>>
 
     output {
