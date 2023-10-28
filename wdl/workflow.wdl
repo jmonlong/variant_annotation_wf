@@ -18,6 +18,7 @@ workflow annotate_variants {
         CLINVAR_VCF_INDEX: "Index for CLINVAR_VCF (.tbi file)."
         SV_DB_RDATA: "RData file with the databases used for SV annotation (e.g. SV catalogs, dbVar clinical SVs, DGV)."
         SPLIT_MULTIAL: "Should multiallelic variants be split into biallelic records? Default: true"
+        KEEP_NON_REF: "Only annotate variants with at least one alternate allele? Default: true"
         SORT_INDEX_VCF: "Should the output VCF be sorted, bgzipped, and indexed? Default: true"
         DBNSFP_DB: "dbNSFP annotation bundle (block-gzip)"
         DBNSFP_DB_INDEX: "Index for DBNSFP_DB"
@@ -44,6 +45,7 @@ workflow annotate_variants {
         File? ANNOTSV_DB
         Boolean SPLIT_MULTIAL = true
         Boolean SORT_INDEX_VCF = true
+        Boolean KEEP_NON_REF = true
     }
 
     # split multi-allelic variants
@@ -57,16 +59,27 @@ workflow annotate_variants {
     # annotate variants with predicted effect based on gene annotation
     File current_vcf = select_first([split_multiallelic_vcf.vcf, VCF])
 
+    # keep variant with at least one alternate allele
+    if (KEEP_NON_REF){
+        call keep_nonref_vcf {
+            input:
+            input_vcf=current_vcf
+        }
+    }
+
+    # annotate variants with predicted effect based on gene annotation
+    File current_vcf_nonref = select_first([keep_nonref_vcf.vcf, current_vcf])
+
     if(defined(SNPEFF_DB) && defined(SNPEFF_DB_NAME)){
         call annotate_with_snpeff {
             input:
-            input_vcf=current_vcf,
+            input_vcf=current_vcf_nonref,
             snpeff_db=select_first([SNPEFF_DB]),
             db_name=select_first([SNPEFF_DB_NAME])
         }
     }
 
-    File current_vcf_snpeff = select_first([annotate_with_snpeff.vcf, current_vcf])
+    File current_vcf_snpeff = select_first([annotate_with_snpeff.vcf, current_vcf_nonref])
 
     # annotate SVs with frequency in SV databases and presence in dbVar Clinical SVs
     if (defined(SV_DB_RDATA)){
@@ -179,6 +192,35 @@ task split_multiallelic_vcf {
     }
 }
 
+task keep_nonref_vcf {
+    input {
+        File input_vcf
+        Int memSizeGB = 4
+        Int threadCount = 1
+        Int diskSizeGB = 5*round(size(input_vcf, "GB")) + 20
+    }
+
+    String basen = sub(sub(basename(input_vcf), ".vcf.bgz$", ""), ".vcf.gz$", "")
+    
+    command <<<
+    set -eux -o pipefail
+    
+    bcftools view -c 1 -Oz -o ~{basen}.nonref.vcf.gz ~{input_vcf}
+    >>>
+    
+    output {
+        File vcf = "~{basen}.nonref.vcf.gz"
+    }
+    
+    runtime {
+        memory: memSizeGB + " GB"
+        cpu: threadCount
+        disks: "local-disk " + diskSizeGB + " SSD"
+        docker: "quay.io/biocontainers/bcftools@sha256:f3a74a67de12dc22094e299fbb3bcd172eb81cc6d3e25f4b13762e8f9a9e80aa"
+        preemptible: 1
+    }
+}
+
 task sort_vcf {
     input {
         File input_vcf
@@ -203,6 +245,69 @@ task sort_vcf {
     runtime {
         memory: memSizeGB + " GB"
         cpu: 1
+        disks: "local-disk " + diskSizeGB + " SSD"
+        docker: "quay.io/biocontainers/bcftools@sha256:f3a74a67de12dc22094e299fbb3bcd172eb81cc6d3e25f4b13762e8f9a9e80aa"
+        preemptible: 1
+    }
+}
+
+task split_small_large_variants {
+    input {
+        File input_vcf
+        Int memSizeGB = 8
+        Int threadCount = 1
+        Int diskSizeGB = 5*round(size(input_vcf, "GB")) + 30
+    }
+
+    command <<<
+        set -eux -o pipefail
+
+        # extract SVs and small variants
+        bcftools view -i "STRLEN(REF)>=30 | MAX(STRLEN(ALT))>=30" -Oz -o svs.vcf.gz ~{input_vcf}
+        bcftools view -i "STRLEN(REF)<30 & MAX(STRLEN(ALT))<30" ~{input_vcf} | bcftools sort -Oz -o smallvars.vcf.gz
+    >>>
+
+    output {
+        File small_vcf = "smallvars.vcf.gz"
+        File sv_vcf = "svs.vcf.gz"
+    }
+
+    runtime {
+        memory: memSizeGB + " GB"
+        cpu: threadCount
+        disks: "local-disk " + diskSizeGB + " SSD"
+        docker: "quay.io/biocontainers/bcftools@sha256:f3a74a67de12dc22094e299fbb3bcd172eb81cc6d3e25f4b13762e8f9a9e80aa"
+        preemptible: 1
+    }
+}
+
+
+task combine_small_large_variants {
+    input {
+        File small_vcf
+        File sv_vcf
+        Int memSizeGB = 8
+        Int threadCount = 1
+        Int diskSizeGB = 5*round(size(small_vcf, "GB") + size(sv_vcf, "GB")) + 30
+    }
+
+    command <<<
+        set -eux -o pipefail
+
+        bcftools sort -Oz -o smallvars.vcf.gz ~{small_vcf}
+        bcftools index -t smallvars.vcf.gz
+        bcftools sort -Oz -o svs.vcf.gz ~{sv_vcf}
+        bcftools index -t svs.vcf.gz
+        bcftools concat -a -Oz -o smallvars.svs.vcf.gz svs.vcf.gz smallvars.vcf.gz
+    >>>
+
+    output {
+        File vcf = "smallvars.svs.vcf.gz"
+    }
+
+    runtime {
+        memory: memSizeGB + " GB"
+        cpu: threadCount
         disks: "local-disk " + diskSizeGB + " SSD"
         docker: "quay.io/biocontainers/bcftools@sha256:f3a74a67de12dc22094e299fbb3bcd172eb81cc6d3e25f4b13762e8f9a9e80aa"
         preemptible: 1
@@ -324,70 +429,6 @@ task annotate_sv_annotsv {
         cpu: threadCount
         disks: "local-disk " + diskSizeGB + " SSD"
         docker: "quay.io/biocontainers/annotsv@sha256:da68ccb7db82c7e371f4d56bbd58eb7723325ed89b79b40d605f2dcfe8e2c6e5"
-        preemptible: 1
-    }
-}
-
-
-task split_small_large_variants {
-    input {
-        File input_vcf
-        Int memSizeGB = 8
-        Int threadCount = 1
-        Int diskSizeGB = 5*round(size(input_vcf, "GB")) + 30
-    }
-
-    command <<<
-        set -eux -o pipefail
-
-        # extract SVs and small variants
-        bcftools view -i "STRLEN(REF)>=30 | MAX(STRLEN(ALT))>=30" -Oz -o svs.vcf.gz ~{input_vcf}
-        bcftools view -i "STRLEN(REF)<30 & MAX(STRLEN(ALT))<30" ~{input_vcf} | bcftools sort -Oz -o smallvars.vcf.gz
-    >>>
-
-    output {
-        File small_vcf = "smallvars.vcf.gz"
-        File sv_vcf = "svs.vcf.gz"
-    }
-
-    runtime {
-        memory: memSizeGB + " GB"
-        cpu: threadCount
-        disks: "local-disk " + diskSizeGB + " SSD"
-        docker: "quay.io/jmonlong/svannotate_sveval@sha256:abe0a34a2d97b2cc7b9ac87fa765934ab4cd27861291d6c3ed035b3449acd281"
-        preemptible: 1
-    }
-}
-
-
-task combine_small_large_variants {
-    input {
-        File small_vcf
-        File sv_vcf
-        Int memSizeGB = 8
-        Int threadCount = 1
-        Int diskSizeGB = 5*round(size(small_vcf, "GB") + size(sv_vcf, "GB")) + 30
-    }
-
-    command <<<
-        set -eux -o pipefail
-
-        bcftools sort -Oz -o smallvars.vcf.gz ~{small_vcf}
-        bcftools index -t smallvars.vcf.gz
-        bcftools sort -Oz -o svs.vcf.gz ~{sv_vcf}
-        bcftools index -t svs.vcf.gz
-        bcftools concat -a -Oz -o smallvars.svs.vcf.gz svs.vcf.gz smallvars.vcf.gz
-    >>>
-
-    output {
-        File vcf = "smallvars.svs.vcf.gz"
-    }
-
-    runtime {
-        memory: memSizeGB + " GB"
-        cpu: threadCount
-        disks: "local-disk " + diskSizeGB + " SSD"
-        docker: "quay.io/jmonlong/svannotate_sveval@sha256:abe0a34a2d97b2cc7b9ac87fa765934ab4cd27861291d6c3ed035b3449acd281"
         preemptible: 1
     }
 }
