@@ -104,7 +104,7 @@ task annotate_denovo_svs {
         memory: memSizeGB + " GB"
         cpu: threadCount
         disks: "local-disk " + diskSizeGB + " SSD"
-        docker: "quay.io/jmonlong/svannotate_sveval@sha256:c4a0ac3dd9176cfc0bec81980d254fa18eb62e0d390d2d01b54c57441a86a65c"
+        docker: "quay.io/jmonlong/svannotate_sveval@sha256:c694bd3db95a07a49a231856c4662326976cc7f1d9875f746adb122ffc094ad6"
         preemptible: 1
     }
 }
