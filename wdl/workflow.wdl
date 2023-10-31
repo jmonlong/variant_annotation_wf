@@ -92,7 +92,7 @@ workflow annotate_variants {
 
     File current_vcf_sv = select_first([annotate_sv_with_db.vcf, current_vcf_snpeff])
     
-    # annotate non-coding SVs with frequency in SV databases and presence in dbVar Clinical SVs
+    # annotate SVs with AnnotSV (doesn't change the VCF but produces a TSV file)
     if (defined(ANNOTSV_DB)){
         call annotate_sv_annotsv {
             input:
@@ -101,8 +101,6 @@ workflow annotate_variants {
         }
     }
     
-    File current_vcf_annotsv = select_first([annotate_sv_annotsv.vcf, current_vcf_sv])
-
     # annotate SNVs/indels with frequency in gnomAD and presence in ClinVar
     # note: first filter small variants to keep those with high/moderate impact or with predicted loss of function (speeds up DB matching a lot)
     #       all SVs kept
@@ -110,7 +108,7 @@ workflow annotate_variants {
 
         call split_small_large_variants {
             input:
-            input_vcf=current_vcf_annotsv
+            input_vcf=current_vcf_sv
         }
         
         call subset_annotate_smallvars_with_db {
@@ -132,7 +130,7 @@ workflow annotate_variants {
         
     }
     
-    File current_vcf_small = select_first([combine_small_large_variants.vcf, current_vcf_annotsv])
+    File current_vcf_small = select_first([combine_small_large_variants.vcf, current_vcf_sv])
 
     # regenotype SVs with local pangenomes using vg to provide some in silico "validation"
     if (defined(BAM) && defined(BAM_INDEX) && defined(REFERENCE_FASTA)){
@@ -160,6 +158,7 @@ workflow annotate_variants {
     output {
         File vcf = final_vcf
         File? vcf_index = sort_vcf.vcf_index
+        File? annotsv_tsv = annotate_sv_annotsv.tsv
     }
 }
 
@@ -410,17 +409,13 @@ task annotate_sv_annotsv {
 
         # annotate SVs
         tar -xzf ~{annotsv_db_tar_gz}
-        AnnotSV -annotationsDir AnnotSV_annotations -SvinputFile svs.vcf.gz -vcf 1 -outputDir out_AnnotSV | tee ~{basen}.AnnotSV.log
-        
-        # merge back SVs
-        bcftools sort -Oz -o svs.annotated.vcf.gz out_AnnotSV/svs.annotated.vcf
-        bcftools index -t svs.annotated.vcf.gz
-        bcftools index -t smallvars.vcf.gz
-        bcftools concat -a -Oz -o ~{basen}.annotsv.vcf.gz smallvars.vcf.gz svs.annotated.vcf.gz
+        AnnotSV -annotationsDir AnnotSV_annotations -SvinputFile svs.vcf.gz -outputDir out_AnnotSV | tee ~{basen}.AnnotSV.log
+        touch out_AnnotSV/svs.annotated.tsv
+        mv out_AnnotSV/svs.annotated.tsv ~{basen}.annotsv.tsv
     >>>
 
     output {
-        File vcf = "~{basen}.annotsv.vcf.gz"
+        File tsv = "~{basen}.annotsv.tsv"
         File log = "~{basen}.AnnotSV.log"
     }
 
