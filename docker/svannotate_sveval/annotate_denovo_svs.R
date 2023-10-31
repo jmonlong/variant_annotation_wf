@@ -27,13 +27,15 @@ splitMultiAls <- function(vcf.o){
   }
   ## split multi-allelic records
   rr.gr = rowRanges(res.m)
-  af.l = info(res.m)$AF
   alt.l = alt.l[which(alt.l>1)]
   res.m = res.m[rep(1:length(alt.l), alt.l)]
   ll = lapply(unlist(lapply(rr.gr$ALT, as.character)), function(x) DNAStringSet(x))
   fixed(res.m)["ALT"] <- DNAStringSetList(ll)
   ## also splits the AF field appropriately
-  info(res.m)$AF = as(unlist(af.l), "NumericList")
+  if(any(colnames(info(res.m)) == 'AF')){
+    af.l = info(res.m)$AF
+    info(res.m)$AF = as(unlist(af.l), "NumericList")
+  }
   ## merge back with records that were biallelic
   rbind(res.b, res.m)
 }
