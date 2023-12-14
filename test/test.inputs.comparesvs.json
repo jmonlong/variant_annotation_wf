@@ -1,0 +1,7 @@
+{
+    "compare_svs.VCF_1": "test/svs.vcf.gz",
+    "compare_svs.VCF_2": "test/svs2.vcf.gz",
+    "compare_svs.SV_DB_RDATA": "test/sv_annotation_database.test_subset.RData",
+    "compare_svs.SAMPLE_NAME_1": "HG002",
+    "compare_svs.SAMPLE_NAME_2": "HG_002"
+}

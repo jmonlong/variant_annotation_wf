@@ -11,12 +11,16 @@ workflow compare_svs {
     parameter_meta {
         VCF_1: "Input VCF 1. Can be gzipped/bgzipped."
         VCF_2: "Input VCF 2. Can be gzipped/bgzipped."
+        SAMPLE_NAME_1: "If specified, input VCF 1 will be restricted to that sample"
+        SAMPLE_NAME_2: "If specified, input VCF 2 will be restricted to that sample"
         SV_DB_RDATA: "RData file with the databases used for SV annotation (e.g. SV catalogs, simple repeat annotation)."
     }
     
     input {
         File VCF_1
         File VCF_2
+        String SAMPLE_NAME_1 = ""
+        String SAMPLE_NAME_2 = ""
         File SV_DB_RDATA
     }
 
@@ -25,6 +29,8 @@ workflow compare_svs {
         input:
         input_vcf_1=VCF_1,
         input_vcf_2=VCF_2,
+        sample_name_1=SAMPLE_NAME_1,
+        sample_name_2=SAMPLE_NAME_2,
         sv_db_rdata=SV_DB_RDATA
     }
             
@@ -57,7 +63,7 @@ task compare_svs_vcf {
         bcftools view -i "STRLEN(REF)>=40 | MAX(STRLEN(ALT))>=40" -Oz -o svs.2.vcf.gz ~{input_vcf_2}
 
         # annotate SVs
-        Rscript /opt/scripts/annotate_sv_overlap.R svs.1.vcf.gz svs.2.vcf.gz ~{sv_db_rdata} svs.1.ann.vcf svs.2.ann.vcf ~{sample_name_1} ~{sample_name_1}
+        Rscript /opt/scripts/annotate_sv_overlap.R svs.1.vcf.gz svs.2.vcf.gz ~{sv_db_rdata} svs.1.ann.vcf svs.2.ann.vcf ~{sample_name_1} ~{sample_name_2}
         
         # sort and gzip VCF
         bcftools sort -Oz -o ~{basen1}.comp.vcf.gz svs.1.ann.vcf
@@ -73,7 +79,7 @@ task compare_svs_vcf {
         memory: memSizeGB + " GB"
         cpu: threadCount
         disks: "local-disk " + diskSizeGB + " SSD"
-        docker: "quay.io/jmonlong/svannotate_sveval:0.5"
+        docker: "quay.io/jmonlong/svannotate_sveval@sha256:fdf0624bd9e0aab39ed6f4196d5c490fdee5cb0e2cf49c6176207b379b7436d7"
         preemptible: 1
     }
 }

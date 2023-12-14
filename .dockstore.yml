@@ -12,3 +12,9 @@ workflows:
     authors:
       - name: Jean Monlong
         email: jmonlong@ucsc.edu
+  - name: compare_svs
+    subclass: WDL
+    primaryDescriptorPath: /wdl/compare_svs.wdl
+    authors:
+      - name: Jean Monlong
+        email: jmonlong@ucsc.edu
