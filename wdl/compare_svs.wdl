@@ -16,6 +16,7 @@ workflow compare_svs {
     
     input {
         File VCF_1
+        File VCF_2
         File SV_DB_RDATA
     }
 
@@ -26,9 +27,7 @@ workflow compare_svs {
         input_vcf_2=VCF_2,
         sv_db_rdata=SV_DB_RDATA
     }
-    
-    File final_vcf = select_first([genotype_svs_trio_with_vg.vcf_stringent, annotate_denovo_svs.vcf])
-        
+            
     output {
         File ann_vcf_1 = compare_svs_vcf.vcf_1
         File ann_vcf_2 = compare_svs_vcf.vcf_2
@@ -66,15 +65,15 @@ task compare_svs_vcf {
     >>>
 
     output {
-        File ann_vcf_1 = "~{basen1}.comp.vcf.gz"
-        File ann_vcf_2 = "~{basen2}.comp.vcf.gz"
+        File vcf_1 = "~{basen1}.comp.vcf.gz"
+        File vcf_2 = "~{basen2}.comp.vcf.gz"
     }
 
     runtime {
         memory: memSizeGB + " GB"
         cpu: threadCount
         disks: "local-disk " + diskSizeGB + " SSD"
-        docker: "quay.io/jmonlong/svannotate_sveval@sha256:c694bd3db95a07a49a231856c4662326976cc7f1d9875f746adb122ffc094ad6"
+        docker: "quay.io/jmonlong/svannotate_sveval:0.5"
         preemptible: 1
     }
 }

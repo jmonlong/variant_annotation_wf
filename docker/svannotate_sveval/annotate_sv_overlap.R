@@ -7,8 +7,6 @@ args = commandArgs(TRUE)
 ## 6: sample name for input VCF 1 (optional)
 ## 7: sample name for input VCF 2 (optional)
 
-## args = c('../../test/svs.vcf.gz', '../../test/svs.vcf.gz', '../../test/sv_annotation_database.test_subset.RData', 'test1.vcf', 'test2.vcf')
-
 suppressPackageStartupMessages(library(dplyr))
 suppressPackageStartupMessages(library(sveval))
 suppressPackageStartupMessages(library(VariantAnnotation))
@@ -102,7 +100,7 @@ annotateSVs <-function(vcf.1, vcf.2){
   ol.2 = ol.o %>% as.data.frame %>% group_by(subjectHits) %>%
     summarize(id=paste(unique(svs.1$ID[queryHits]), collapse=','))
   svs.2$id2 = NA
-  svs.2$id2[ol.2$queryHits] = ol.2$id
+  svs.2$id2[ol.2$subjectHits] = ol.2$id
   ## header for the new INFO fields
   info.h = S4Vectors::DataFrame(Number='1', Type='String',
                                 Description='IDs of the SV(s) in the other VCF. NA if not in the other VCF')

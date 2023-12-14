@@ -88,4 +88,6 @@ wget https://snpeff.blob.core.windows.net/databases/v5_1/snpEff_v5_1_GRCh38.105.
 miniwdl run --as-me -i test/test.inputs.json wdl/workflow.wdl
 miniwdl run --as-me -i test/test.inputs.noncodingsvs.json wdl/workflow.wdl
 miniwdl run --as-me -i test/test.inputs.annotsv.json wdl/workflow.wdl
+
+miniwdl run --as-me -i test/test.inputs.comparesvs.json wdl/compare_svs.wdl
 ```
