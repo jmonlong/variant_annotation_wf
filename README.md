@@ -89,5 +89,7 @@ miniwdl run --as-me -i test/test.inputs.json wdl/workflow.wdl
 miniwdl run --as-me -i test/test.inputs.noncodingsvs.json wdl/workflow.wdl
 miniwdl run --as-me -i test/test.inputs.annotsv.json wdl/workflow.wdl
 
+miniwdl run --as-me -i test/test.inputs.bam.json wdl/workflow.wdl
+
 miniwdl run --as-me -i test/test.inputs.comparesvs.json wdl/compare_svs.wdl
 ```

@@ -50,7 +50,7 @@ rule process_chunk:
     shell:
         """
         mkdir {params.tdir}
-        python3 /opt/scripts/validate-svs.py -b reads.bam -f ref.fa -v {input} -d {params.tdir} -o {output} -t {THREADS}
+        python3 /opt/scripts/validate-svs-single_variant.py -b reads.bam -f ref.fa -v {input} -d {params.tdir} -o {output} -t {THREADS}
         rm -r {params.tdir}
         """
 

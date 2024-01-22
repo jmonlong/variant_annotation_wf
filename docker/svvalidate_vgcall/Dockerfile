@@ -59,6 +59,7 @@ RUN pip3 install cyvcf2 snakemake
 # add script
 WORKDIR /opt/scripts
 ADD validate-svs.py /opt/scripts
+ADD validate-svs-single_variant.py /opt/scripts
 ADD validate-svs-trio.py /opt/scripts
 ADD Snakefile /opt/scripts
 ADD Snakefile_trio /opt/scripts

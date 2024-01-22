@@ -494,7 +494,6 @@ task validate_svs_with_vg {
     }
 
     String basen = sub(sub(basename(input_vcf), ".vcf.bgz$", ""), ".vcf.gz$", "")
-    Int smCores = threadCount / 2
     
     command <<<
         set -eux -o pipefail
@@ -507,11 +506,9 @@ task validate_svs_with_vg {
         ln -s ~{bam} reads.bam
         ln -s ~{bam_index} reads.bam.bai
 
-        ## run the validation script in parallel across smCores cores
+        ## run the validation script
         ln -s ~{input_vcf} input.vcf.gz
-        snakemake --snakefile /opt/scripts/Snakefile --cores ~{smCores}
-
-        mv output.vcf.gz ~{basen}.svval.vcf.gz
+        python3 /opt/scripts/validate-svs.py -b reads.bam -f ref.fa -v ~{input_vcf} -t ~{threadCount} -o ~{basen}.svval.vcf.gz
     >>>
 
     output {

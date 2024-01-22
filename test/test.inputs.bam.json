@@ -1,0 +1,19 @@
+{
+    "annotate_variants.VCF": "test/test.vcf.gz",
+    "annotate_variants.SNPEFF_DB": "test/snpEff_v5_1_GRCh38.105.zip",
+    "annotate_variants.SNPEFF_DB_NAME": "GRCh38.105",
+    "annotate_variants.GNOMAD_VCF": "test/fake.gnomad.vcf.gz",
+    "annotate_variants.GNOMAD_VCF_INDEX": "test/fake.gnomad.vcf.gz.tbi",
+    "annotate_variants.CLINVAR_VCF": "test/fake.clinvar.vcf.gz",
+    "annotate_variants.CLINVAR_VCF_INDEX": "test/fake.clinvar.vcf.gz.tbi",
+    "annotate_variants.SV_DB_RDATA": "test/sv_annotation_database.test_subset.RData",
+    "annotate_variants.DBNSFP_DB": "test/fake.dbNSFP.txt.gz",
+    "annotate_variants.DBNSFP_DB_INDEX": "test/fake.dbNSFP.txt.gz.tbi",
+    "annotate_variants.SPLIT_MULTIAL": true,
+    "annotate_variants.SORT_INDEX_VCF": true,
+    "annotate_variants.annotate_with_snpeff.memSizeGB": 4,
+    "annotate_variants.ANNOTSV_DB": "test/AnnotSV_annotations.GRCh38.tar.gz",
+    "annotate_variants.BAM": "test/reads.bam",
+    "annotate_variants.BAM_INDEX": "test/reads.bam.bai",
+    "annotate_variants.REFERENCE_FASTA": "test/hg38.fa"
+}
