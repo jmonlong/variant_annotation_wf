@@ -54,7 +54,7 @@ RUN git clone https://github.com/lh3/minigraph.git && \
 ENV PATH=$PATH:/bin/minigraph
 
 # python packages
-RUN pip3 install cyvcf2 snakemake
+RUN pip3 install cyvcf2 snakemake pyfaidx
 
 # add script
 WORKDIR /opt/scripts
