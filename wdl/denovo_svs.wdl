@@ -125,7 +125,6 @@ task genotype_svs_trio_with_vg {
     }
 
     String basen = sub(sub(basename(input_vcf), ".vcf.bgz$", ""), ".vcf.gz$", "")
-    Int smCores = threadCount / 2
     
     command <<<
         set -eux -o pipefail
@@ -146,7 +145,7 @@ task genotype_svs_trio_with_vg {
         bcftools view -i "AF<0.01" -o input.vcf.gz -Oz ~{input_vcf}
         
         ## run the validation script in parallel across smCores cores
-        snakemake --snakefile /opt/scripts/Snakefile_trio --cores ~{smCores}
+        python3 /opt/scripts/validate-svs-trio.py -b reads.bam,reads.p1.bam,reads.p2.bam -f ref.fa -v ~{input_vcf} -t ~{threadCount} -o ~{basen}.svval.vcf.gz
 
         ## extract two sets of de novo candidates
         ## stringent: some evidence in child, no evidence in parents
@@ -164,7 +163,7 @@ task genotype_svs_trio_with_vg {
         memory: memSizeGB + " GB"
         cpu: threadCount
         disks: "local-disk " + diskSizeGB + " SSD"
-        docker: "quay.io/jmonlong/svvalidate_vgcall@sha256:254673bb45053cef11d8ad2bac3274af7c4f393521fab125a134e23a766544b1"
+        docker: "quay.io/jmonlong/svvalidate_vgcall@sha256:599f73d3471acdecab0e9107488f21a55f35b18805dc71fe937961ad2a1157df"
         preemptible: 1
     }
 }
