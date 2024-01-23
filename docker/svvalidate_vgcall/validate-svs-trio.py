@@ -4,134 +4,91 @@ from cyvcf2 import VCF, Writer
 import os
 import sys
 import hashlib
+from pyfaidx import Fasta
+
+dump = open('/dev/null', 'w')
+flank_size = 50000
 
 
-# function to write a VCF for one SV
-# that VCF file is later used to build a pangenome
-def write_single_sv_vcf(sv_info, vcf_path):
-    outf = open(vcf_path, 'wt')
-    outf.write("##fileformat=VCFv4.2\n")
-    outf.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
-    rec_to_format = "{seqn}\t{pos}\t.\t{ref}\t{alt}\t.\t.\t.\n"
-    outf.write(rec_to_format.format(seqn=sv_info['seqn'],
-                                    pos=sv_info['start'],
-                                    ref=sv_info['ref'],
-                                    alt=sv_info['alt']))
-    outf.close()
-    bgzip_args = ["bgzip", "-c", vcf_path]
-    vcf_path_gz = vcf_path + '.gz'
-    with open(vcf_path_gz, 'w') as file:
-        run(bgzip_args, check=True, stdout=file,
-            stderr=sys.stderr, universal_newlines=True)
-    tabix_args = ["tabix", vcf_path_gz]
-    run(tabix_args, check=True, stdout=sys.stdout,
-        stderr=sys.stderr, universal_newlines=True)
-    return (vcf_path_gz)
+def add_sv_to_pan(svs, ref, bam_paths, svcl,
+                  vcf_outf, ref_outf, reads_outfs, chr_lens):
+    # region of interest
+    cl_start = min([svs[svid]['start'] for svid in svcl])
+    region_start = max(1, cl_start - flank_size)
+    cl_end = max([svs[svid]['end'] for svid in svcl])
+    region_end = cl_end + flank_size
+    seqn = svs[svcl[0]]['seqn']
+    if seqn in chr_lens:
+        region_end = min(region_end, chr_lens[seqn] - 1)
+    # extract reference sequence for the FASTA
+    ref_cont = ref[seqn][region_start:region_end]
+    cont_name = 'ref_' + '_'.join([svs[svid]['svid'] for svid in svcl])
+    # append to fasta file
+    ref_outf.write('>{}\n{}\n'.format(cont_name, str(ref_cont)))
+    # extract reads using smaller flanks to make sure they align
+    flank_size_n = int(flank_size / 5)
+    eregion_start = max(1, cl_start - flank_size_n)
+    eregion_end = cl_end + flank_size_n
+    if seqn in chr_lens:
+        eregion_end = min(eregion_end, chr_lens[seqn] - 1)
+    eregion_coord = '{}:{}-{}'.format(seqn,
+                                      eregion_start,
+                                      eregion_end)
+    # extract reads for each sample
+    for sampi, bam_path in enumerate(bam_paths):
+        extract_args = ["samtools", "view", "-h", bam_path, eregion_coord]
+        sam_view = run(extract_args, check=True, capture_output=True)
+        extract_args = ["samtools", "fasta"]
+        run(extract_args, check=True, input=sam_view.stdout,
+            stdout=reads_outfs[sampi], stderr=dump)
+    # add to VCF
+    rec_to_format = "{seqn}\t{pos}\t{svid}\t{ref}\t{alt}\t.\t.\t.\n"
+    for svid in svcl:
+        cont_pos = svs[svid]['start'] - region_start
+        vcf_outf.write(rec_to_format.format(seqn=cont_name,
+                                            pos=cont_pos,
+                                            svid=svid,
+                                            ref=svs[svid]['ref'],
+                                            alt=svs[svid]['alt']))
+    return (False)
 
 
-# function to evaluate a SV
-# sv_info is a dict with a 'svid', position and ref/alt sequences information
-def evaluate_sv(sv_info, ref_fa_path, bam_paths, output_dir,
-                debug_mode=False, nb_cores=2, chr_lens={}):
-    svid = sv_info['svid']
-    dump = open('/dev/null', 'w')
-    # make VCF with just the one SV
-    vcf_path = os.path.join(output_dir, sv_info['svid'] + ".vcf")
-    vcf_path_gz = write_single_sv_vcf(sv_info, vcf_path)
-    # decide on the region to consider
-    # for now take the SV position and add some flanking regions
-    # make sure to not go over the chromosome boundaruies though
-    flank_size = 50000
-    region_start = max(1, sv_info['start'] - flank_size)
-    region_end = sv_info['end'] + flank_size
-    if sv_info['seqn'] in chr_lens:
-        region_end = min(region_end, chr_lens[sv_info['seqn']] - 1)
-    region_coord_vg = '{}:{}-{}'.format(sv_info['seqn'],
-                                        region_start,
-                                        region_end)
-    # also use smaller flanks to extract the reads to make sure they align
-    flank_size = 10000
-    region_start = max(1, sv_info['start'] - flank_size)
-    region_end = sv_info['end'] + flank_size
-    if sv_info['seqn'] in chr_lens:
-        region_end = min(region_end, chr_lens[sv_info['seqn']] - 1)
-    region_coord = '{}:{}-{}'.format(sv_info['seqn'],
-                                     region_start,
-                                     region_end)
-    # make graph with SV
-    construct_args = ["vg", "construct", "-a", "-m", "1024", "-S",
-                      "-r", ref_fa_path, "-v", vcf_path_gz,
-                      "-R", region_coord_vg]
-    vg_output_path = os.path.join(output_dir, sv_info['svid'] + ".vg")
-    with open(vg_output_path, 'w') as file:
-        run(construct_args, check=True, stdout=file,
-            stderr=sys.stderr, universal_newlines=True)
-    # convert to GFA for mapping
-    convert_args = ["vg", "convert", "-f", vg_output_path]
-    gfa_output_path = os.path.join(output_dir, svid + ".gfa")
-    with open(gfa_output_path, 'w') as file:
-        run(convert_args, check=True, stdout=file,
-            stderr=sys.stderr, universal_newlines=True)
-    # genotype each sample
-    bam_paths = bam_paths.split(',')
-    samp_labs = ['child', 'p1', 'p2']
-    score = {'prop': [-1] * 3, 'ad': [''] * 3}
-    for ii in range(len(bam_paths)):
-        bam_path = bam_paths[ii]
-        sl = samp_labs[ii]
-        # extract reads
-        extract_args = ["samtools", "view", "-h", bam_path, region_coord]
-        sam_output_path = os.path.join(output_dir, svid + "_" + sl + ".sam")
-        with open(sam_output_path, 'w') as file:
-            run(extract_args, check=True, stdout=file,
-                stderr=sys.stderr, universal_newlines=True)
-        extract_args = ["samtools", "fasta", sam_output_path]
-        fa_output_path = os.path.join(output_dir, svid + "_" + sl + ".fasta")
-        with open(fa_output_path, 'w') as file:
-            run(extract_args, check=True, stdout=file,
-                stderr=dump, universal_newlines=True)
-        # align reads to pangenome
-        map_args = ["minigraph", "-t", str(nb_cores),
-                    "-c", gfa_output_path, fa_output_path]
-        gaf_output_path = os.path.join(output_dir, svid + "_" + sl + ".gaf")
-        with open(gaf_output_path, 'w') as file:
-            run(map_args, check=True, stdout=file,
-                stderr=dump, universal_newlines=True)
-        # genotype SV
-        pack_output_path = os.path.join(output_dir, svid + "_" + sl + ".pack")
-        pack_args = ["vg", "pack", "-t", str(nb_cores), "-e",
-                     "-x", vg_output_path, "-o", pack_output_path,
-                     '-a', gaf_output_path]
-        run(pack_args, check=True, stdout=sys.stdout,
-            stderr=sys.stderr, universal_newlines=True)
-        call_args = ["vg", "call", "-t", str(nb_cores),
-                     "-k", pack_output_path, '-v', vcf_path, vg_output_path]
-        call_output_path = os.path.join(output_dir,
-                                        svid + "_" + sl + ".called.vcf")
-        with open(call_output_path, 'w') as file:
-            run(call_args, check=True, stdout=file,
-                stderr=sys.stderr, universal_newlines=True)
-        # update SV information or return a score
-        for variant in VCF(call_output_path):
-            ad = variant.format('AD')[0]
-            dp = ad[0] + ad[1]
-            score['ad'][ii] = '{}|{}'.format(ad[0], ad[1])
-            if dp == 0:
-                score['prop'][ii] = 0
-            else:
-                score['prop'][ii] = float(ad[1]) / dp
-        # remove intermediate files
-        if not debug_mode:
-            for ff in [sam_output_path, fa_output_path,
-                       gaf_output_path, pack_output_path, call_output_path]:
-                os.remove(ff)
-    # remove intermediate files
-    if not debug_mode:
-        for ff in [vg_output_path, gfa_output_path,
-                   vcf_path, vcf_path_gz, vcf_path_gz + '.tbi']:
-            os.remove(ff)
-    dump.close()
-    return (score)
+def genotype_sample(reads_fa, gfa_path):
+    print('      Align extracted reads to pangenome...')
+    map_args = ["minigraph", "-t", str(args.t),
+                "-c", gfa_output_path, reads_fa]
+    gaf_output_path = os.path.join(args.d, "reads.gaf")
+    with open(gaf_output_path, 'w') as file:
+        run(map_args, check=True, stdout=file, stderr=dump)
+    #
+    print('      Genotype SV calls...')
+    pack_output_path = os.path.join(args.d, "reads.pack")
+    pack_args = ["vg", "pack", "-t", str(args.t), "-e",
+                 "-x", vg_output_path, "-o", pack_output_path,
+                 '-a', gaf_output_path]
+    run(pack_args, check=True, stdout=sys.stdout, stderr=dump)
+    call_args = ["vg", "call", "-t", str(args.t),
+                 "-k", pack_output_path, '-v', gt_vcf_gz, vg_output_path]
+    call_output_path = os.path.join(args.d, "called.vcf")
+    with open(call_output_path, 'w') as file:
+        run(call_args, check=True, stdout=file, stderr=dump)
+    # parse genotyped SVs
+    val_score = {}
+    called_vcf = VCF(call_output_path)
+    for variant in called_vcf:
+        score = {}
+        ad = variant.format('AD')[0]
+        dp = ad[0] + ad[1]
+        score['ad'] = '{}|{}'.format(ad[0], ad[1])
+        if dp == 0:
+            score['prop'] = 0
+        else:
+            score['prop'] = float(ad[1]) / dp
+        val_score[variant.ID] = score
+    # delete temporary files
+    for ftrm in [gaf_output_path, pack_output_path, call_output_path]:
+        os.remove(ftrm)
+    return (val_score)
 
 
 parser = argparse.ArgumentParser()
@@ -141,13 +98,19 @@ parser.add_argument('-v', help='variants in VCF (can be bgzipped)',
                     required=True)
 parser.add_argument('-d', help='output directory', default='temp_valsv')
 parser.add_argument('-o', default='out.vcf',
-                    help='output (annotated) VCF (will be bgzipped if ending in .gz)')
+                    help='output (annotated) VCF (will be '
+                    'bgzipped if ending in .gz)')
 parser.add_argument('-t', default=2,
-                    help='number of threads used by the tools (vg and minigraph))')
+                    help='number of threads used by the tools '
+                    '(vg and minigraph))')
 args = parser.parse_args()
 
-DEBUG_MODE = False
+# create temp directory if it doesn't exist
+if not os.path.exists(args.d):
+    os.makedirs(args.d)
 
+# load reference genome index
+ref = Fasta(args.f)
 # extract chromosome lengths from the .fai (2nd column)
 chr_lens = {}
 with open(args.f + '.fai', 'rt') as inf:
@@ -155,28 +118,11 @@ with open(args.f + '.fai', 'rt') as inf:
         line = line.rstrip().split('\t')
         chr_lens[line[0]] = int(line[1])
 
+# Cluster SV regions to avoid multimap issues if they overlap
+print('Read input VCF and cluster SVs...')
+# record SV info
+svs = {}
 vcf = VCF(args.v)
-vcf.add_info_to_header({'ID': 'RS_PROP',
-                        'Description': 'Proportion of supporting reads (from vg genotyping)',
-                        'Type': 'Float', 'Number': '1'})
-vcf.add_info_to_header({'ID': 'RS_AD',
-                        'Description': 'Number of reads supporting the ref|alt (from vg genotyping)',
-                        'Type': 'String', 'Number': '1'})
-vcf.add_info_to_header({'ID': 'RS_PROP_P1',
-                        'Description': 'Proportion of supporting reads in parent 1 (from vg genotyping)',
-                        'Type': 'Float', 'Number': '1'})
-vcf.add_info_to_header({'ID': 'RS_AD_P1',
-                        'Description': 'Number of reads supporting the ref|alt in parent 1 (from vg genotyping)',
-                        'Type': 'String', 'Number': '1'})
-vcf.add_info_to_header({'ID': 'RS_PROP_P2',
-                        'Description': 'Proportion of supporting reads in parent 2 (from vg genotyping)',
-                        'Type': 'Float', 'Number': '1'})
-vcf.add_info_to_header({'ID': 'RS_AD_P2',
-                        'Description': 'Number of reads supporting the ref|alt in parent 2 (from vg genotyping)',
-                        'Type': 'String', 'Number': '1'})
-vcf_o = Writer(args.o, vcf)
-
-# Read VCF and evaluate each SV
 for variant in vcf:
     if len(variant.REF) > 30 or len(variant.ALT[0]) > 30:
         svinfo = {}
@@ -190,16 +136,152 @@ for variant in vcf:
         svinfo['svid'] = '{}_{}_{}'.format(variant.CHROM,
                                            variant.start,
                                            seq.hexdigest())
-        score = evaluate_sv(svinfo, args.f, args.b, args.d,
-                            DEBUG_MODE, nb_cores=args.t,
-                            chr_lens=chr_lens)
-        variant.INFO["RS_PROP"] = score['prop'][0]
-        variant.INFO["RS_AD"] = score['ad'][0]
-        variant.INFO["RS_PROP_P1"] = score['prop'][1]
-        variant.INFO["RS_AD_P1"] = score['ad'][1]
-        variant.INFO["RS_PROP_P2"] = score['prop'][2]
-        variant.INFO["RS_AD_P2"] = score['ad'][2]
-    vcf_o.write_record(variant)
+        if 'AF' not in variant.INFO or variant.INFO['AF'] <= args.F:
+            # add variants and ref sequence to input files for the pangenome
+            svs[svinfo['svid']] = svinfo
+vcf.close()
+# sort SVs per chromosome
+sv_pos_chr = {}
+for svid in svs:
+    svinfo = svs[svid]
+    if svinfo['seqn'] not in sv_pos_chr:
+        sv_pos_chr[svinfo['seqn']] = []
+    sv_pos_chr[svinfo['seqn']].append([svid,
+                                       svinfo['start'],
+                                       svinfo['end']])
+sv_cls = []
+cur_cl = []
+for seqn in sv_pos_chr:
+    pos_sorted = sorted(sv_pos_chr[seqn], key=lambda k: (k[1], k[2]))
+    # create SV clusters
+    for svpos in pos_sorted:
+        if len(cur_cl) == 0:
+            # current cluster is empty, so just init with the next SV
+            cur_cl.append(svpos[0])
+        else:
+            # compare positions with last SV in cluster
+            cl_sv = cur_cl[-1]
+            if svs[cl_sv]['end'] + flank_size > svpos[1] - flank_size:
+                # their regions would overlap, add to the current cluster
+                cur_cl.append(svpos[0])
+            else:
+                # they are far enough from each other, save current cluster
+                # and start a new one
+                sv_cls.append(cur_cl)
+                cur_cl = [svpos[0]]
+if len(cur_cl) > 0:
+    sv_cls.append(cur_cl)
 
+print('Prepare files for pangenome construction...')
+bam_paths = args.b.split(',')
+# prepare 3 files: VCF + FASTA for the pangenome, + local reads
+gt_vcf = os.path.join(args.d, "for_construct.vcf")
+ref_fa = os.path.join(args.d, "ref.fa")
+# open connections to files
+ref_outf = open(ref_fa, 'wt')
+vcf_outf = open(gt_vcf, 'wt')
+# same for the extracted for each sample
+reads_fas = []
+reads_outfs = []
+for sampi, bam_path in enumerate(bam_paths):
+    reads_fas.append(os.path.join(args.d, "reads{}.fasta".format(sampi)))
+    reads_outfs.append(open(reads_fas[sampi], 'wt'))
+# init VCF file
+vcf_outf.write("##fileformat=VCFv4.2\n")
+vcf_outf.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
+for svcl in sv_cls:
+    # add variants and ref sequence to input files for the pangenome
+    add_sv_to_pan(svs, ref, bam_paths, svcl,
+                  vcf_outf, ref_outf, reads_outfs, chr_lens)
+vcf.close()
+# close connections
+vcf_outf.close()
+ref_outf.close()
+for reads_outf in reads_outfs:
+    reads_outf.close()
+
+
+# #######
+print('Build pangenome with {} SV calls in {} clusters to '
+      'genotype...'.format(len(svs), len(sv_cls)))
+# #######
+
+# pre-process VCF for pangenome construction
+bgzip_args = ["bgzip", '-f', gt_vcf]
+gt_vcf_gz = gt_vcf + '.gz'
+run(bgzip_args, check=True)
+tabix_args = ["tabix", gt_vcf_gz]
+run(tabix_args, check=True)
+# make graph with SV
+construct_args = ["vg", "construct", "-a", "-m", "1024", "-S",
+                  "-t", str(args.t), "-r", ref_fa, "-v", gt_vcf_gz]
+vg_output_path = os.path.join(args.d, "graph.vg")
+with open(vg_output_path, 'w') as file:
+    run(construct_args, check=True, stdout=file, stderr=dump)
+convert_args = ["vg", "convert", "-f", vg_output_path]
+gfa_output_path = os.path.join(args.d, "graph.gfa")
+with open(gfa_output_path, 'w') as file:
+    run(convert_args, check=True, stdout=file, stderr=dump)
+
+
+# #######
+print('Genotype SVs in each sample...')
+# #######
+
+trio_scores = []
+for sampi, reads_fa in enumerate(reads_fas):
+    print("   Sample {}".format(sampi))
+    trio_scores.append(genotype_sample(reads_fa, gfa_output_path))
+
+# annotate input VCF
+vcf = VCF(args.v)
+vcf.add_info_to_header({'ID': 'RS_PROP',
+                        'Description': 'Proportion of supporting reads '
+                        '(from vg genotyping)',
+                        'Type': 'Float', 'Number': '1'})
+vcf.add_info_to_header({'ID': 'RS_AD',
+                        'Description': 'Number of reads supporting the ref|alt'
+                        ' (from vg genotyping)',
+                        'Type': 'String', 'Number': '1'})
+vcf.add_info_to_header({'ID': 'RS_PROP_P1',
+                        'Description': 'Proportion of supporting reads in '
+                        'parent 1 (from vg genotyping)',
+                        'Type': 'Float', 'Number': '1'})
+vcf.add_info_to_header({'ID': 'RS_AD_P1',
+                        'Description': 'Number of reads supporting the ref|alt'
+                        ' in parent 1 (from vg genotyping)',
+                        'Type': 'String', 'Number': '1'})
+vcf.add_info_to_header({'ID': 'RS_PROP_P2',
+                        'Description': 'Proportion of supporting reads in'
+                        ' parent 2 (from vg genotyping)',
+                        'Type': 'Float', 'Number': '1'})
+vcf.add_info_to_header({'ID': 'RS_AD_P2',
+                        'Description': 'Number of reads supporting the ref|alt'
+                        ' in parent 2 (from vg genotyping)',
+                        'Type': 'String', 'Number': '1'})
+vcf_o = Writer(args.o, vcf)
+
+# Read VCF and evaluate each SV
+for variant in vcf:
+    if len(variant.REF) > 30 or len(variant.ALT[0]) > 30:
+        seq = '{}_{}'.format(variant.REF, variant.ALT[0])
+        seq = hashlib.sha1(seq.encode())
+        svid = '{}_{}_{}'.format(variant.CHROM,
+                                 variant.start,
+                                 seq.hexdigest())
+        if svid in trio_scores[0]:
+            variant.INFO["RS_PROP"] = trio_scores[0][svid]['prop']
+            variant.INFO["RS_AD"] = trio_scores[0][svid]['ad']
+            variant.INFO["RS_PROP_P1"] = trio_scores[1][svid]['prop']
+            variant.INFO["RS_AD_P1"] = trio_scores[1][svid]['ad']
+            variant.INFO["RS_PROP_P2"] = trio_scores[2][svid]['prop']
+            variant.INFO["RS_AD_P2"] = trio_scores[2][svid]['ad']
+    vcf_o.write_record(variant)
 vcf_o.close()
 vcf.close()
+
+
+# delete temporary files
+for ftrm in [gt_vcf_gz, gt_vcf_gz + '.tbi', ref_fa, ref_fa + '.fai',
+             vg_output_path, gfa_output_path] + reads_fas:
+    os.remove(ftrm)

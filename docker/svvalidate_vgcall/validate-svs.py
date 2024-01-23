@@ -260,3 +260,9 @@ vcf_o.close()
 vcf.close()
 
 dump.close()
+
+# delete temporary files
+for ftrm in [gt_vcf_gz, gt_vcf_gz + '.tbi', reads_fa, ref_fa, ref_fa + '.fai',
+             vg_output_path, gfa_output_path, gaf_output_path,
+             pack_output_path, call_output_path]:
+    os.remove(ftrm)
