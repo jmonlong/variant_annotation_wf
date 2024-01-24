@@ -163,7 +163,7 @@ task genotype_svs_trio_with_vg {
         memory: memSizeGB + " GB"
         cpu: threadCount
         disks: "local-disk " + diskSizeGB + " SSD"
-        docker: "quay.io/jmonlong/svvalidate_vgcall@sha256:599f73d3471acdecab0e9107488f21a55f35b18805dc71fe937961ad2a1157df"
+        docker: "quay.io/jmonlong/svvalidate_vgcall@sha256:8020ea9a9fd784c5dab74fd366cd089df5bb7f17154b79e4dcc780596c30b0ed"
         preemptible: 1
     }
 }
