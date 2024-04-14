@@ -6,6 +6,13 @@ sinfo = pandas.read_csv(config['sample_info'], sep='\t', dtype={"sample": str}).
 if len(config['sample']) == 0:
     config['sample'] = list(sinfo['sample'])
 
+# enumerate probands (samples with parents)
+trio_probands = []
+if 'bam_p1' in sinfo:
+    for samp in sinfo.sample[sinfo.bam_p1 != '' and sinfo.bam_p2 != '' and sinfo.bam_p1 != 'NA' and sinfo.bam_p2 != 'NA']:
+        if samp in config['sample']:
+            trio_probands.append(samp)
+    
 rule all:
     input:
         vcf=expand("results/{sample}/{sample}.annot.vcf.gz", sample=config['sample']),
@@ -18,13 +25,28 @@ rule annot_tr:
 rule stats:
     input: expand("results/{sample}/{sample}.vcf_stats.tsv", sample=config['sample'])
 
+rule denovo_svs:
+    input: expand("results/{sample}/{sample}.denovo_svs.vcf.gz", sample=trio_probands)
+
 # RULES
 
 def gethvcf(wildcards):
     return(sinfo.hvcf[wildcards.sample])
 
+def gethvcf_p1(wildcards):
+    return(sinfo.hvcf_p1[wildcards.sample])
+
+def gethvcf_p2(wildcards):
+    return(sinfo.hvcf_p2[wildcards.sample])
+
 def getbam(wildcards):
     return(sinfo.bam[wildcards.sample])
+
+def getbamp1(wildcards):
+    return(sinfo.bam_p1[wildcards.sample])
+
+def getbamp2(wildcards):
+    return(sinfo.bam_p2[wildcards.sample])
 
 rule split_multiallelic_vcf:
     input: gethvcf
@@ -230,4 +252,50 @@ rule get_vcf_stats:
     resources:
         runtime=600
     shell: "python3 {input.script} -v {input.vcf} -o {output}"
-                                      
+
+rule annotate_denovo_svs_sveval:
+    input:
+        script="scripts/annotate_denovo_svs.R",
+        vcf="results/{sample}/snpeff.{sample}.svs.vcf.gz",
+        vcf_p1=gethvcf_p1,
+        vcf_p2=gethvcf_p2,
+        db=config['svdb']
+    output: "results/{sample}/snpeff.{sample}.svs.sveval.denovo_cand.vcf.gz"
+    container: "docker://quay.io/jmonlong/svannotate_sveval@sha256:c694bd3db95a07a49a231856c4662326976cc7f1d9875f746adb122ffc094ad6"
+    params:
+        tmp_dir=config['tmp_dir'],
+        tmp_vcf=config['tmp_dir'].rstrip('/') + "/temp_{sample}_svs.denovo.annotated.vcf"
+    resources:
+        mem='8G',
+        runtime='3h'
+    benchmark: 'benchmark/annotate_svs_sveval.{sample}.tsv'
+    shell:
+        """
+        Rscript {input.script} {input.vcf} {input.vcf_p1} {input.vcf_p2} {input.db} {params.tmp_vcf}
+        bcftools sort -T {params.tmp_dir} -Oz -o {output} {params.tmp_vcf}
+        rm -f {params.tmp_vcf}
+        """
+
+rule validate_denovo_svs_with_vg:
+    input:
+        vcf="results/{sample}/snpeff.{sample}.svs.sveval.denovo_cand.vcf.gz",
+        bam=getbam,
+        bam_p1=getbamp1,
+        bam_p2=getbamp2,
+        ref=config['ref'],
+        script='scripts/validate-svs-trio.py'
+    output: "results/{sample}/{sample}.denovo_svs.vcf.gz"
+    container: 'docker://quay.io/jmonlong/svvalidate_vgcall@sha256:8020ea9a9fd784c5dab74fd366cd089df5bb7f17154b79e4dcc780596c30b0ed'
+    threads: 8
+    params:
+        tmp_dir=config['tmp_dir'].rstrip('/') + '/temp.{sample}.validate.denovo'
+    resources:
+        mem="8G",
+        runtime='6h',
+        tmpdir=config['tmp_dir']
+    benchmark: 'benchmark/validate_denovo_svs_with_vg.{sample}.tsv'
+    shell:
+        """
+        python3 {input.script} -b {input.bam},{input.bam_p1},{input.bam_p2} -f {input.ref} -v {input.vcf} -d {params.tmp_dir} -t {threads} -o {output}
+        rm -rf {params.tmp_dir}
+        """
