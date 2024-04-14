@@ -1,0 +1,364 @@
+---
+title: Report
+urlcolor: teal
+output:
+  html_document:
+    theme: readable
+---
+
+<style type="text/css">
+.main-container {
+  max-width: 1800px;
+  margin-left: auto;
+  margin-right: auto;
+}
+</style>
+
+```{r include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, message=FALSE, warning=FALSE, fig.width=10)
+```
+
+
+```{r}
+suppressPackageStartupMessages(library(dplyr))
+library(ggplot2)
+library(knitr)
+library(tidyr)
+suppressPackageStartupMessages(library(VariantAnnotation))
+library(DT)
+
+prepareGRanges <- function(vcf.o){  # vcf.o is a VCF object generated somewhere from readVCF()
+    vars = rowRanges(vcf.o)   ## from VariantAnnotation package.
+    vars$type = ifelse(is.na(info(vcf.o)$SVTYPE), 'small', 'sv')
+    vars$gt = geno(vcf.o)$GT[,1]
+    vars$AF = unlist(info(vcf.o)$AF)
+    vars$AF = ifelse(is.na(vars$AF), 0, vars$AF)
+    vars$CADDphred = unlist(info(vcf.o)$dbNSFP_CADD_phred)
+    vars$CADDraw = unlist(info(vcf.o)$dbNSFP_CADD_raw)
+    vars$MetaRNNscore = unlist(info(vcf.o)$dbNSFP_MetaRNN_score)
+    vars$MetaRNNPred = unlist(info(vcf.o)$dbNSFP_MetaRNN_pred)
+    vars$GERP = unlist(info(vcf.o)$dbNSFP_GERP___RS)
+    vars$ALFA = unlist(info(vcf.o)$dbNSFP_ALFA_Total_AF)
+    vars$CLNSIG = unlist(lapply(info(vcf.o)$CLNSIG, paste, collapse=";"))
+    vars$CLINSV = unlist(info(vcf.o)$CLINSV)
+    vars$DGV = unlist(info(vcf.o)$DGV)
+    vars$RS_PROP = unlist(info(vcf.o)$RS_PROP)
+    vars$RS_AD = unlist(info(vcf.o)$RS_AD)
+    vars$ENHDIS = unlist(info(vcf.o)$ENHDIS)
+    return(vars)
+}
+
+## to shorten long allelic sequence (for SVs it can be thousands of bases long)
+shorten <- function(x, max.length=10){
+    x.l = nchar(x)
+    long.x = which(x.l>max.length)
+    if(length(long.x)>0){
+      x[long.x] = paste0(substr(x[long.x], 1, max.length), '_', as.integer(x.l[long.x]-max.length))
+    }
+    return(x)
+}
+## convert the GRange object to a data.frame more efficiently by shortening the sequence of the alleles 
+## and flattening the lists
+grToDF <- function(gr){
+  df = tibble(ref=shorten(as.character(gr$REF)),
+              alt=shorten(as.character(unlist(gr$ALT))))
+  df = cbind(df, mcols(gr)[,setdiff(colnames(mcols(gr)), c('REF','ALT', 'paramRangeID'))])
+  mcols(gr) = NULL
+  cbind(as.data.frame(gr)[,c('seqnames', 'start', 'end')], df)
+}
+## parse the ANN field and extract the different information (gene name, effect, impact, etc)
+formatAnn <- function(df){
+  ann.l = strsplit(df$ann, split='\\|')
+  df$ann = NULL
+  cbind(df, tibble(
+              allele=unlist(lapply(ann.l, '[', 1)),
+              effect=gsub('&', ' ', unlist(lapply(ann.l, '[', 2))),
+              impact=unlist(lapply(ann.l, '[', 3)),
+              gene=unlist(lapply(ann.l, '[', 4)),
+              gene_type=unlist(lapply(ann.l, '[', 8))))
+}
+## use the functions above to create the data.frame from the GRange and VCF objects
+makeANNdataframe <-function(vars, vcf.o){
+    ann = info(vcf.o)$ANN
+    vars.ann = vars[rep(1:length(ann), unlist(lapply(ann, length)))]
+    vars.ann$ann = unlist(ann)
+    names(vars.ann) = NULL
+    ann.df = grToDF(vars.ann)
+    ann.df$impact = NULL
+    unique(formatAnn(ann.df))
+}
+
+## extract the gene name and percent of transcript affected
+formatLof <- function(df){
+    df$lof = gsub("\\)", "", df$lof)
+    df$lof = gsub("\\(", "", df$lof)
+    lof.l = strsplit(df$lof, split='\\|')
+    df$lof = NULL
+    cbind(df, tibble(
+                  lof.pct=as.numeric(unlist(lapply(lof.l, '[', 4))),
+                  gene=unlist(lapply(lof.l, '[', 1))))
+}
+makeLOFdataframe <-function(vars, vcf.o){
+    lof = info(vcf.o)$LOF
+    vars.lof = vars[rep(1:length(lof), unlist(lapply(lof, length)))]
+    vars.lof$lof = unlist(lof)
+    names(vars.lof) = NULL
+    lof.df = grToDF(vars.lof)
+    unique(formatLof(lof.df))
+}
+
+annotateRepeats <- function(vcf.o, sd, gaps, homopol, map){
+  ## segmental duplications
+  rowRanges(vcf.o)$sd = suppressWarnings(overlapsAny(vcf.o, sd))
+  rowRanges(vcf.o)$sd99 = suppressWarnings(overlapsAny(vcf.o, subset(sd, fracMatch>=.99)))
+  ## assembly gaps, centromere, telomeres
+  dist.o = suppressWarnings(distanceToNearest(vcf.o, gaps)) %>% as.data.frame
+  rowRanges(vcf.o)$gapd = Inf
+  rowRanges(vcf.o)$gapd[dist.o$queryHits] = dist.o$distance
+  ## homopolymers
+  rowRanges(vcf.o)$homopolymer = suppressWarnings(overlapsAny(vcf.o, homopol))
+  ## mappable regions
+  rowRanges(vcf.o)$mappable = suppressWarnings(overlapsAny(vcf.o, map))
+  ## return annotated vcf
+  vcf.o
+}
+
+loadVCF <- function(vcf.f){
+    vcf.o = suppressWarnings(readVcf(vcf.f))
+    ## remove homozygous refs
+    nonrefhom.ii = which(!(geno(vcf.o)$GT[,1] %in% c('./.', '0/0', '0|0')))
+    vcf.o = vcf.o[nonrefhom.ii]
+    ## annotate repeats
+    vcf.o = annotateRepeats(vcf.o, sd, gaps, homopol, map)
+    ## prepare data.frames
+    vars = prepareGRanges(vcf.o)
+    ann.df = makeANNdataframe(vars, vcf.o)
+    lof.df = makeLOFdataframe(vars, vcf.o)
+    al.df = merge(ann.df, lof.df, all=TRUE)
+    return(al.df)
+}
+
+assignTierCond <- function(df, tier, desc){
+    ## concatenate description only if it was the same tier
+    new.desc = ifelse(tier == df$tier, paste(desc, df$tier.desc, sep='; '), desc)
+    df$tier.desc = ifelse(df$cond & tier <= df$tier, new.desc, df$tier.desc)
+    ## overwrite tier only if higher
+    df$tier = ifelse(df$cond & tier < df$tier, tier, df$tier)
+    df
+}
+assignTier <- function(df){
+    df$tier = Inf
+    df$tier.desc = NA
+    ## helper intermediate information (homozygous, SV in sensitive genes)
+    df = df %>% 
+        mutate(sv.del = type=='sv' & nchar(ref)>nchar(alt) & 
+                   ((!is.na(gene.phaplo[gene]))&gene.phaplo[gene]>.86),
+               sv.dup = type=='sv' & nchar(ref)<nchar(alt) & 
+                   ((!is.na(gene.ptriplo[gene]))&gene.ptriplo[gene]>.94),
+               hom = !grepl('0', gt), 
+               gene.pli=gene.pli[gene],
+               hq=QUAL>20 | RS_PROP>.1)
+    ## tier 1
+    df = df %>% 
+        mutate(cond=grepl("Pathogenic", CLNSIG)) %>% 
+               assignTierCond(1, 'pathogenic in ClinVar') %>% 
+        mutate(cond=CLINSV>.5 & DGV<.5) %>% 
+               assignTierCond(1, 'known clinical SV') %>% 
+        mutate(cond=gene %in% dis.genes & impact=='HIGH' & 
+                                   (GERP>4 | CADDphred>40 | MetaRNNscore>.6)) %>% 
+              assignTierCond(1, 'high impact GERP/CADD/MetaRBB in disease gene') %>% 
+        mutate(cond=gene %in% dis.genes & impact=='HIGH' & (sv.del | sv.dup)) %>% 
+              assignTierCond(1, 'high impact SV in disease gene') %>% 
+        mutate(cond=gene %in% dis.genes & impact=='HIGH' & hom & lof.pct>.9) %>% 
+              assignTierCond(1, 'high impact homozygous LoF variant in disease gene') %>% 
+        mutate(cond=lof.pct>.9 & gene.pli>.9) %>% 
+              assignTierCond(1, 'LoF variant in gene with pLI>0.9') %>% 
+        mutate(cond=lof.pct>.9 & gene %in% dominant.genes) %>% 
+              assignTierCond(1, 'LoF variant in gene assoc. dominant disease')
+    ## tier 2
+    df = df %>% 
+        mutate(cond=gene %in% dis.genes & type=='sv') %>% 
+              assignTierCond(2, 'SV in disease gene') %>% 
+        mutate(cond=gene %in% dis.genes & lof.pct>.9) %>% 
+              assignTierCond(2, 'LoF variant in disease gene') %>% 
+        mutate(cond=gene %in% dis.genes & impact=='MODERATE' & 
+                           (GERP>3 | CADDphred>30 | MetaRNNscore>.5)) %>% 
+              assignTierCond(2, 'moderate impact variant on disease gene') %>% 
+        mutate(cond=gene %in% omim.genes$gene & impact=='HIGH' & 
+                           (GERP>3 | CADDphred>30 | MetaRNNscore>.5)) %>% 
+              assignTierCond(2, 'high impact variant in OMIM gene') %>% 
+        mutate(cond=sv.del) %>% 
+              assignTierCond(2, 'deletion in pHaplo gene') %>% 
+        mutate(cond=sv.dup) %>% 
+              assignTierCond(2, 'duplication/insertion in pTriplo gene')
+    ## downgrade tier 1/2 to 3 if not confident calls
+    df = df %>% mutate(tier.desc=ifelse(tier %in% 1:2 & !hq, paste0('LQ(', tier.desc, ')'), tier.desc),
+                       tier=ifelse(tier %in% 1:2 & !hq, 3, tier))
+    ## remove variants below tier 2 that thought to be "benign" in clinvar
+    df = mutate(df, tier=ifelse(tier>1 & grepl('benign', CLNSIG, ignore.case=TRUE), Inf, tier))
+    ## tier 3
+    df = df %>% 
+        mutate(cond=impact=='HIGH' & (CADDphred>20 | GERP > 2 | MetaRNNscore>.4)) %>% 
+              assignTierCond(3, 'high/medium impact GERP/CADD/MetaRNN') %>% 
+        mutate(cond=grepl('pathogenic', CLNSIG, ignore.case=TRUE) | 
+                           grepl('Uncertain_significance', CLNSIG)) %>% 
+              assignTierCond(3, 'VUS or likely pathogenic in ClinVar')
+    ## return data.frame
+    return(df %>% dplyr::select(-cond))
+}
+
+## Format some fields of a data.frame to convert them into links to external resources
+formatLink <- function(labels, urls, format='pdf'){
+  if(format=='html'){
+    return(paste0('[', labels, '](', urls,')'))
+  }
+  if(format=='rawhtml'){
+    return(paste0('<a href="', urls, '" target="_blank">', labels, '</a>'))
+  }
+  if(format=='pdf'){
+    return(paste0('{\\href{', urls, '}{', labels, '}}'))
+  }
+}
+linkGenes <- function(genes, format='html'){
+  urls = paste0('https://www.ncbi.nlm.nih.gov/gene?term=(', genes, '%5BGene%20Name%5D)%20AND%20Human%5BOrganism%5D')
+  return(formatLink(genes, urls, format=format))
+}
+linkPli <- function(scores, genes, digits=3, format='html'){
+  urls = paste0('https://gnomad.broadinstitute.org/gene/', genes)
+  labels = round(scores, digits)
+  return(formatLink(labels, urls, format=format))
+}
+linkPos <- function(chr, start, end, flanks=500, format='html'){
+  urls = paste0('https://genome.ucsc.edu/cgi-bin/hgTracks?db=hg38&position=', chr, '%3A',
+                start-flanks, '-', end+flanks, '&highlight=hg38.', chr, '%3A',
+                start, '-', end, '%23E18F99')
+  labels = ifelse(start==end, paste0(chr, ':', start), paste0(chr, ':', start, '-', end))
+  return(formatLink(labels, urls, format=format))
+}
+formatTable <- function(df){
+  if(nrow(df)==0) return(df)
+  ## make some columns "factors" to help filtering
+  for(coln in c('type', 'ac', 'CLNSIG', 'tier', 'impact', 'effect')){
+    if(coln %in% colnames(df)){
+      df[,coln] = factor(df[,coln])
+    }
+  }
+  if('seqnames' %in% colnames(df)){
+    df$pos = linkPos(df$seqnames, df$start, df$end, format='rawhtml')
+    df$start = df$end = df$seqnames = NULL
+  }
+  if('gene' %in% colnames(df)){
+    if('gene.pli' %in% colnames(df)){
+      ## df$pLI = linkPli(df$gene.pli, df$gene, format='rawhtml')
+      df$pLI = df$gene.pli
+      df$gene.pli = NULL
+    }
+    df$gene = linkGenes(df$gene, format='rawhtml')
+  }
+  df
+}
+
+if(all(ls() != 'sr')){
+  load('references/annotation_database.RData')
+}
+
+
+gene.list = c(
+  scan('genedx.anophthalmia.microphthalmia.txt', ''),
+  scan('invitae.anophthalmia.microphthalmia.txt', ''),
+  scan('preventiongenetics.anophthalmia.microphthalmia.txt', '')
+) %>% unique
+
+## disease genes
+dis.genes = unique(c(clingen.genes$gene, gencc.genes$gene_symbol))
+## dominant disease genes
+dominant.genes = unique(c(
+  subset(omim.genes, grepl('AD', inheritance) | grepl('XLD', inheritance))$gene,
+  subset(clingen.genes, inheritance == 'AD')$gene,
+  subset(gencc.genes, grepl('dominant', moi_title))$gene_symbol))
+
+if(all(ls() != 'al.df')){
+  al.df = loadVCF('./results/SG171796/SG171796.annot.vcf.gz')
+}
+
+## al.df = al.df %>% filter(impact %in% c('MODERATE', 'HIGH'))
+
+## Convert all NA into 0 or ''
+al.df.new <- al.df %>%
+  mutate_if(is.numeric, ~replace_na(.,0)) %>% 
+  mutate_if(is.character, ~replace_na(.,""))
+```
+
+
+# {.tabset}
+
+## Tier 1-3
+
+```{r}
+al.df.new %>% 
+    filter(AF<0.001, gene_type=='protein_coding') %>%
+    assignTier %>% 
+    filter(tier<4) %>% 
+    formatTable() %>%
+    dplyr::select(pos, gene, ref, alt, type, gt, AF, effect, tier, tier.desc, impact, lof.pct, pLI, CLNSIG) %>% 
+    datatable(filter='top', escape=FALSE, options=list(pageLength=25))
+```
+
+## Around gene list
+
+```{r}
+al.df.new %>% 
+    filter(AF<0.001, gene_type=='protein_coding', gene %in% gene.list) %>%
+    assignTier %>% 
+    formatTable() %>%
+    dplyr::select(pos, gene, ref, alt, type, gt, AF, effect, impact, lof.pct, pLI, RS_PROP, CLNSIG) %>% 
+    datatable(filter='top', escape=FALSE, options=list(pageLength=25))
+```
+
+## Around enhancers of disease genes
+
+```{r}
+al.df.new %>% 
+    filter(AF<0.001, ENHDIS>0) %>%
+    assignTier %>% 
+    formatTable() %>%
+    dplyr::select(pos, ENHDIS, ref, alt, type, gt, AF, RS_PROP, gene, pLI) %>% 
+    datatable(filter='top', escape=FALSE, options=list(pageLength=25))
+```
+
+## Simple repeats and VNTR variation
+
+```{r}
+tr.samp = read.table('test.tsv.gz', header=TRUE, as.is=TRUE)
+
+tr.samp.gr = tr.samp %>% mutate(start=pos, end=start+ref, size=alt-ref) %>% 
+  makeGRangesFromDataFrame(keep.extra.columns=TRUE)
+
+ol = findOverlaps(sr, tr.samp.gr, maxgap=1) %>% as.data.frame %>%
+  mutate(size=tr.samp.gr$size[subjectHits],
+         sample=tr.samp.gr$sample[subjectHits],
+         phased=tr.samp.gr$phased[subjectHits],
+         wol=width(pintersect(sr[queryHits], tr.samp.gr[subjectHits])),
+         size=ifelse(size<0, -wol, size)) %>% 
+  group_by(queryHits, sample, phased) %>% summarize(size=sum(size), .groups='drop')
+
+sr.sv = sr[ol$queryHits]
+sr.sv$size = ol$size
+sr.sv$phased = ol$phased
+sr.sv
+
+tr.cont = read.table('references/hprc-hgsvc-tr-catalog.tsv.gz', as.is=TRUE, header=TRUE)
+tr.cont.s = tr.cont[,1:3]
+tr.cont.s$max_var = apply(tr.cont[,4:ncol(tr.cont)], 1, max)
+tr.cont.s$min_var = apply(tr.cont[,4:ncol(tr.cont)], 1, min)
+
+tr.df = sr.sv %>% as.data.frame %>% merge(tr.cont.s, all.x=TRUE)
+
+tr.df %>% filter(as.logical(phased), max_var<100) %>% arrange(desc(size-max_var)) %>%
+  dplyr::select(-strand, -phased) %>% head(20)
+## tr.df %>% filter(size>0) %>% 
+##   ggplot(aes(x=max_var, y=size)) +
+##   geom_point(alpha=.5) +
+##   theme_bw() +
+##   facet_wrap(~phased)
+```

@@ -1,0 +1,233 @@
+import pandas
+
+# import sample information
+sinfo = pandas.read_csv(config['sample_info'], sep='\t', dtype={"sample": str}).set_index('sample', drop=False).sort_index()
+
+if len(config['sample']) == 0:
+    config['sample'] = list(sinfo['sample'])
+
+rule all:
+    input:
+        vcf=expand("results/{sample}/{sample}.annot.vcf.gz", sample=config['sample']),
+        annotsv=expand("results/{sample}/snpeff.{sample}.svs.sveval.annotsv.tsv", sample=config['sample']),
+        tr=expand("results/{sample}/{sample}.tr.tsv.gz", sample=config['sample'])
+
+rule annot_tr:
+    input: expand("results/{sample}/{sample}.tr.tsv.gz", sample=config['sample'])
+
+rule stats:
+    input: expand("results/{sample}/{sample}.vcf_stats.tsv", sample=config['sample'])
+
+# RULES
+
+def gethvcf(wildcards):
+    return(sinfo.hvcf[wildcards.sample])
+
+def getbam(wildcards):
+    return(sinfo.bam[wildcards.sample])
+
+rule split_multiallelic_vcf:
+    input: gethvcf
+    output: temp("results/{sample}/{sample}.norm.vcf.gz")
+    threads: 4
+    resources:
+        mem='8G',
+        runtime='1h'
+    benchmark: 'benchmark/split_multiallelic_vcf.{sample}.tsv'
+    shell:
+        """
+        bcftools norm -m -both --threads {threads} -Oz -o {output} {input}
+        """
+
+rule keep_nonref_vcf:
+    input: "results/{sample}/{sample}.norm.vcf.gz"
+    output: temp("results/{sample}/{sample}.norm.nonref.vcf.gz")
+    resources:
+        mem='8G',
+        runtime='1h'
+    benchmark: 'benchmark/keep_nonref_vcf.{sample}.tsv'
+    shell:
+        """
+        bcftools view -c 1 -Oz -o {output} {input}
+        """
+
+rule sort_vcf:
+    input: "results/{file}.vcf.gz"
+    resources:
+        mem='8G',
+        runtime='3h'
+    output:
+        vcf="results/{file}.sorted.vcf.gz",
+        tbi="results/{file}.sorted.vcf.gz.tbi"
+    params:
+        tmp_dir=config['tmp_dir']
+    shell:
+        """
+        bcftools sort -T {params.tmp_dir} -Oz -o {output.vcf} {input}
+        bcftools index -t -o {output.tbi} {output.vcf}
+        """
+
+rule annotate_with_snpeff:
+    input:
+        vcf="results/{sample}/{sample}.norm.nonref.sorted.vcf.gz",
+        db=config['snpeff'] + "/GRCh38.105/cytoBand.txt.gz"
+    output: "results/{sample}/snpeff.{sample}.vcf.gz"
+    params:
+        db=config['snpeff']
+    container: 'docker://quay.io/biocontainers/snpeff@sha256:7ac091da707f5d63f307eef4ee57c3f0e94eed49f86bbdace3d4be3a514ed410'
+    benchmark: 'benchmark/annotate_with_snpeff.{sample}.tsv'
+    resources:
+        mem='16G',
+        runtime='3h'
+    shell:
+        """
+        zcat {input.vcf} | snpEff -Xmx16g -nodownload -no-intergenic -dataDir "${{PWD}}/{params.db}" GRCh38.105 | gzip > {output}
+        """
+
+rule split_small_large_variants:
+    input: "results/{sample}/snpeff.{sample}.vcf.gz"
+    output:
+        small=temp("results/{sample}/snpeff.{sample}.smallvars.vcf.gz"),
+        sv="results/{sample}/snpeff.{sample}.svs.vcf.gz"
+    resources:
+        mem='8G',
+        runtime='6h'
+    params:
+        tmp_dir=config['tmp_dir']
+    benchmark: 'benchmark/split_small_large_variants.{sample}.tsv'
+    shell:
+        """
+        bcftools view -i "STRLEN(REF)>=30 | MAX(STRLEN(ALT))>=30" -Oz -o {output.sv} {input}
+        bcftools view -i "STRLEN(REF)<30 & MAX(STRLEN(ALT))<30" {input} | bcftools sort -T {params.tmp_dir} -Oz -o {output.small}
+        """
+
+rule annotate_svs_sveval:
+    input:
+        script="scripts/annotate_svs.R",
+        vcf="results/{sample}/snpeff.{sample}.svs.vcf.gz",
+        db=config['svdb']
+    output: "results/{sample}/snpeff.{sample}.svs.sveval.vcf.gz"
+    container: "docker://quay.io/jmonlong/svannotate_sveval@sha256:c694bd3db95a07a49a231856c4662326976cc7f1d9875f746adb122ffc094ad6"
+    params:
+        tmp_dir=config['tmp_dir'],
+        tmp_vcf=config['tmp_dir'].rstrip('/') + "/temp_{sample}_svs.annotated.vcf"
+    resources:
+        mem='8G',
+        runtime='3h'
+    benchmark: 'benchmark/annotate_svs_sveval.{sample}.tsv'
+    shell:
+        """
+        Rscript {input.script} {input.vcf} {input.db} {params.tmp_vcf}
+        bcftools sort -T {params.tmp_dir} -Oz -o {output} {params.tmp_vcf}
+        rm -f {params.tmp_vcf}
+        """
+
+rule annotate_svs_annotsv:
+    input:
+        vcf="results/{sample}/snpeff.{sample}.svs.sveval.vcf.gz",
+        db=config['annotsv'] + '/Annotations_Human/Genes/GRCh38/genes.RefSeq.sorted.bed'
+    output: "results/{sample}/snpeff.{sample}.svs.sveval.annotsv.tsv.gz"
+    log: 'logs/annotate_svs_annotsv.{sample}.log'
+    container: "docker://quay.io/biocontainers/annotsv@sha256:da68ccb7db82c7e371f4d56bbd58eb7723325ed89b79b40d605f2dcfe8e2c6e5"
+    params:
+        tmp_dir=config['tmp_dir'].rstrip('/') + "/temp_annotsv.{sample}",
+        annotsvdb=config['annotsv']
+    resources:
+        mem='8G',
+        runtime='3h'
+    benchmark: 'benchmark/annotate_svs_annotsv.{sample}.tsv'
+    shell:
+        """
+        AnnotSV -annotationsDir {params.annotsvdb} -SvinputFile {input.vcf} -outputDir {params.tmp_dir} > {log}
+        gzip -c {params.tmp_dir}/*.annotated.tsv > {output}
+        rm  -rf {params.tmp_dir}
+        """
+
+rule annotate_smallvars_snpsift:
+    input:
+        vcf="results/{sample}/snpeff.{sample}.smallvars.vcf.gz",
+        gnomad=config['gnomad'],
+        clinvar=config['clinvar'],
+        dbnsfp=config['dbnsfp']
+    output: "results/{sample}/snpeff.{sample}.smallvars.annot.vcf.gz"
+    container: "docker://quay.io/biocontainers/snpsift@sha256:049babfac841d15a92d8febfc10a25f5aa109c9fe6670af35ea79583a1c78402"
+    params:
+        tmp_vcf=config['tmp_dir'].rstrip('/') + '/temp_snpsift.{sample}.vcf'
+    threads: 4
+    resources:
+        mem="8G",
+        runtime='3h'
+    benchmark: 'benchmark/annotate_smallvars_snpsift.{sample}.tsv'
+    shell:
+        """
+        zcat {input.vcf} | \
+        SnpSift -Xmx4g annotate -info CLNSIG {input.clinvar} | \
+        SnpSift -Xmx1g filter "(ANN[*].IMPACT has 'HIGH') | (ANN[*].IMPACT has 'MODERATE') | ((exists LOF[*].PERC) & (LOF[*].PERC > 0.9)) | (exists CLNSIG)" | \
+        SnpSift -Xmx8g annotate -noId {input.gnomad} > {params.tmp_vcf}
+        SnpSift -Xmx8g dbnsfp -db {input.dbnsfp} -f GERP++_RS,CADD_raw,CADD_phred,MetaRNN_score,MetaRNN_pred,ALFA_Total_AF {params.tmp_vcf} | gzip > {output}
+        rm -f {params.tmp_vcf}
+        """
+
+rule validate_svs_with_vg:
+    input:
+        vcf="results/{sample}/snpeff.{sample}.svs.sveval.vcf.gz",
+        bam=getbam,
+        ref=config['ref'],
+        script='scripts/validate-svs.py'
+    output: "results/{sample}/snpeff.{sample}.svs.sveval.vgval.vcf.gz"
+    container: 'docker://quay.io/jmonlong/svvalidate_vgcall@sha256:8020ea9a9fd784c5dab74fd366cd089df5bb7f17154b79e4dcc780596c30b0ed'
+    threads: 8
+    params:
+        tmp_dir=config['tmp_dir'].rstrip('/') + '/temp.{sample}.svs.sveval'
+    resources:
+        mem="8G",
+        runtime='6h',
+        tmpdir=config['tmp_dir']
+    benchmark: 'benchmark/validate_svs_with_vg.{sample}.tsv'
+    shell:
+        """
+        python3 {input.script} -b {input.bam} -f {input.ref} -v {input.vcf} -d {params.tmp_dir} -t {threads} -o {output}
+        rm -rf {params.tmp_dir}
+        """
+
+rule merge_small_svs:
+    input:
+        svs="results/{sample}/snpeff.{sample}.svs.sveval.vgval.vcf.gz",
+        small="results/{sample}/snpeff.{sample}.smallvars.annot.vcf.gz"
+    output: "results/{sample}/{sample}.annot.vcf.gz"
+    params:
+        tmp_dir=config['tmp_dir'],
+        tmp_small=config['tmp_dir'].rstrip('/') + '/temp.merge_small_svs.{sample}.small.vcf.gz',
+        tmp_svs=config['tmp_dir'].rstrip('/') + '/temp.merge_small_svs.{sample}.svs.vcf.gz'
+    benchmark: 'benchmark/merge_small_svs.{sample}.tsv'
+    resources:
+        mem='8G',
+        runtime='1h'
+    shell:
+        """
+        bcftools sort -T {params.tmp_dir} -Oz -o {params.tmp_small} {input.small}
+        bcftools index -t {params.tmp_small}
+        bcftools sort -T {params.tmp_dir} -Oz -o {params.tmp_svs} {input.svs}
+        bcftools index -t {params.tmp_svs}
+        bcftools concat -a -Oz -o {output} {params.tmp_small} {params.tmp_svs}
+        rm -f {params.tmp_small} {params.tmp_svs} {params.tmp_small}.tbi {params.tmp_svs}.tbi
+        """
+
+rule prepare_tr:
+    input:
+        vcf=gethvcf,
+        script='scripts/prepare_tr_from_vcf.py'
+    output: "results/{sample}/{sample}.tr.tsv.gz"
+    benchmark: 'benchmark/prepare_tr.{sample}.tsv'
+    shell: "zcat {input.vcf} | python3 {input.script} | gzip > {output}"
+
+rule get_vcf_stats:
+    input:
+        vcf=gethvcf,
+        script='scripts/get_vcf_stats.py'
+    output: "results/{sample}/{sample}.vcf_stats.tsv"
+    benchmark: 'benchmark/get_vcf_stats.{sample}.tsv'
+    resources:
+        runtime=600
+    shell: "python3 {input.script} -v {input.vcf} -o {output}"
+                                      

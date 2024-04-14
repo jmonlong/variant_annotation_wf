@@ -1,0 +1,11 @@
+clinvar: "references/clinvar_20230318.vcf.gz"
+dbnsfp: "references/dbNSFP4.4.small.txt.gz"
+gnomad: "references/gnomad.genomes.r3.0.sites.small.vcf.bgz"
+svdb: "references/annotation_database.RData"
+annotsv: "references/AnnotSV_annotations"
+snpeff: "references/data"
+ref: "references/hg38.fa"
+tr_catalog: hprc-hgsvc-tr-catalog.tsv.gz
+sample_info: sample_info.all.tsv
+sample: ''
+tmp_dir: "temp"

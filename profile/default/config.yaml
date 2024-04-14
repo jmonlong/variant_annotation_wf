@@ -1,0 +1,2 @@
+jobs: 20
+default-resources: slurm_partition=medium
