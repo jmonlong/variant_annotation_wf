@@ -5,6 +5,18 @@ sinfo = pandas.read_csv(config['sample_info'], sep='\t', dtype={"sample": str}).
 
 if len(config['sample']) == 0:
     config['sample'] = list(sinfo['sample'])
+elif not isinstance(config['sample'], list):
+    config['sample'] = config['sample'].split(',')
+
+# optional: TSV with (sample, hpo) columns. hpo is a comma-sep list of HPO terms
+hpo = {}
+hpo_samples = []
+if 'hpo_tsv' in config:
+    hpo = pandas.read_csv(config['hpo_tsv'], sep='\t', dtype={"sample": str}).set_index('sample', drop=False).sort_index()
+    for samp in config['sample']:
+        print(samp)
+        if samp in hpo['sample']:
+            hpo_samples.append(samp)
 
 # enumerate probands (samples with parents)
 trio_probands = []
@@ -16,8 +28,11 @@ if 'bam_p1' in sinfo:
 rule all:
     input:
         vcf=expand("results/{sample}/{sample}.annot.vcf.gz", sample=config['sample']),
-        annotsv=expand("results/{sample}/snpeff.{sample}.svs.sveval.annotsv.tsv", sample=config['sample']),
+        annotsv=expand("results/{sample}/snpeff.{sample}.svs.sveval.annotsv.tsv.gz", sample=config['sample']),
         tr=expand("results/{sample}/{sample}.tr.tsv.gz", sample=config['sample'])
+
+rule hpo:
+    input: expand("results/{sample}/snpeff.{sample}.svs.sveval.annotsv_pheno.tsv.gz", sample=config['sample'])
 
 rule annot_tr:
     input: expand("results/{sample}/{sample}.tr.tsv.gz", sample=config['sample'])
@@ -150,7 +165,7 @@ rule annotate_svs_annotsv:
         db=config['annotsv'] + '/Annotations_Human/Genes/GRCh38/genes.RefSeq.sorted.bed'
     output: "results/{sample}/snpeff.{sample}.svs.sveval.annotsv.tsv.gz"
     log: 'logs/annotate_svs_annotsv.{sample}.log'
-    container: "docker://quay.io/biocontainers/annotsv@sha256:da68ccb7db82c7e371f4d56bbd58eb7723325ed89b79b40d605f2dcfe8e2c6e5"
+    container: "docker://quay.io/jmonlong/annotsv:3.4"
     params:
         tmp_dir=config['tmp_dir'].rstrip('/') + "/temp_annotsv.{sample}",
         annotsvdb=config['annotsv']
@@ -161,6 +176,28 @@ rule annotate_svs_annotsv:
     shell:
         """
         AnnotSV -annotationsDir {params.annotsvdb} -SvinputFile {input.vcf} -outputDir {params.tmp_dir} > {log}
+        gzip -c {params.tmp_dir}/*.annotated.tsv > {output}
+        rm  -rf {params.tmp_dir}
+        """
+
+rule annotate_svs_annotsv_pheno:
+    input:
+        vcf="results/{sample}/snpeff.{sample}.svs.sveval.vcf.gz",
+        db=config['annotsv'] + '/Annotations_Human/Genes/GRCh38/genes.RefSeq.sorted.bed'
+    output: "results/{sample}/snpeff.{sample}.svs.sveval.annotsv_pheno.tsv.gz"
+    log: 'logs/annotate_svs_annotsv_pheno.{sample}.log'
+    container: "docker://quay.io/jmonlong/annotsv:3.4"
+    params:
+        tmp_dir=config['tmp_dir'].rstrip('/') + "/temp_annotsv.{sample}",
+        annotsvdb=config['annotsv'],
+        hpo=lambda wildcards: hpo.hpo[wildcards.sample]
+    resources:
+        mem='8G',
+        runtime='3h'
+    benchmark: 'benchmark/annotate_svs_annotsv.{sample}.tsv'
+    shell:
+        """
+        AnnotSV -annotationsDir {params.annotsvdb} -SvinputFile {input.vcf} -hpo {params.hpo} -outputDir {params.tmp_dir} > {log}
         gzip -c {params.tmp_dir}/*.annotated.tsv > {output}
         rm  -rf {params.tmp_dir}
         """
