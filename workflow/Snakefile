@@ -9,14 +9,14 @@ if len(config['sample']) == 0:
 # enumerate probands (samples with parents)
 trio_probands = []
 if 'bam_p1' in sinfo:
-    for samp in sinfo.sample[sinfo.bam_p1 != '' and sinfo.bam_p2 != '' and sinfo.bam_p1 != 'NA' and sinfo.bam_p2 != 'NA']:
+    for samp in sinfo[(sinfo.bam_p1.notnull()) & (sinfo.bam_p2.notnull())]['sample']:
         if samp in config['sample']:
             trio_probands.append(samp)
     
 rule all:
     input:
         vcf=expand("results/{sample}/{sample}.annot.vcf.gz", sample=config['sample']),
-        annotsv=expand("results/{sample}/snpeff.{sample}.svs.sveval.annotsv.tsv", sample=config['sample']),
+        annotsv=expand("results/{sample}/snpeff.{sample}.svs.sveval.annotsv.tsv.gz", sample=config['sample']),
         tr=expand("results/{sample}/{sample}.tr.tsv.gz", sample=config['sample'])
 
 rule annot_tr:
@@ -189,7 +189,7 @@ rule annotate_smallvars_snpsift:
         SnpSift -Xmx8g dbnsfp -db {input.dbnsfp} -f GERP++_RS,CADD_raw,CADD_phred,MetaRNN_score,MetaRNN_pred,ALFA_Total_AF {params.tmp_vcf} | gzip > {output}
         rm -f {params.tmp_vcf}
         """
-
+        
 rule validate_svs_with_vg:
     input:
         vcf="results/{sample}/snpeff.{sample}.svs.sveval.vcf.gz",
