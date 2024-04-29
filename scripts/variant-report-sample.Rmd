@@ -16,6 +16,42 @@ output:
 
 ```{r include=FALSE}
 knitr::opts_chunk$set(echo=FALSE, message=FALSE, warning=FALSE, fig.width=10)
+##
+## arguments
+##
+## define arguments
+args = list()
+args$gene.list = list(arg='-g', desc='text file with genes of interest')
+args$vcf = list(arg='-v', desc='VCF with variant calls')
+args$annot.db = list(arg='-d', desc='annotation database (.RData file)')
+args$rep.exp = list(arg='-r', desc='repeat expansion TSV file')
+args$rep.exp.cont = list(arg='-rc', desc='repeat expansion TSV file for controls')
+args$annotsv = list(arg='-a', desc='TSV file from AnnotSV')
+args$out = list(arg='-o', desc='summary RDS file to output', val='variant-report-sample.rds')
+## parse arguments
+args.i = commandArgs(TRUE)
+## args.i = unlist(strsplit('-g /home/jean.monlong/Documents/irsd/lrs-odd/annotation_smk/genedx.anophthalmia.microphthalmia.txt -v /home/jean.monlong/Documents/irsd/lrs-odd/annotation_smk/results/SG171796/SG171796.annot.vcf.gz -r /home/jean.monlong/Documents/irsd/lrs-odd/annotation_smk/results/SG171796/SG171796.tr.tsv.gz -rc /home/jean.monlong/Documents/irsd/lrs-odd/annotation_smk/references/hprc-hgsvc-tr-catalog.tsv.gz -d /home/jean.monlong/Documents/irsd/lrs-odd/annotation_smk/references/annotation_database.RData -a /home/jean.monlong/Documents/irsd/lrs-odd/annotation_smk/results/SG171796/snpeff.SG171796.svs.sveval.annotsv_pheno.tsv.gz', ' '))
+arg.to.arg = names(args)
+names(arg.to.arg) = as.character(sapply(args, function(l) l$arg))
+ii = 1
+show.usage = FALSE
+while(ii <= length(args.i) & !show.usage){
+  if(any(args.i[ii] == names(arg.to.arg))){
+    args[[arg.to.arg[args.i[ii]]]]$val = args.i[ii+1]
+    ii = ii + 1
+  } else {
+    if(args.i[ii] != '-h'){
+      cat("\n\nError:", args.i[ii], ' argument unknown.\n', file = stderr())
+    }
+    show.usage = TRUE
+  }
+  ii = ii + 1
+}
+if(show.usage){
+  cat("\nUsage:\n", file = stderr())
+  lapply(args, function(ll) cat(paste(ll$arg, '\t', ll$desc, "\n"), file=stderr()))
+  stop()
+}
 ```
 
 
@@ -258,16 +294,7 @@ formatTable <- function(df){
   df
 }
 
-if(all(ls() != 'sr')){
-  load('references/annotation_database.RData')
-}
-
-
-gene.list = c(
-  scan('genedx.anophthalmia.microphthalmia.txt', ''),
-  scan('invitae.anophthalmia.microphthalmia.txt', ''),
-  scan('preventiongenetics.anophthalmia.microphthalmia.txt', '')
-) %>% unique
+load(args$annot.db$val)
 
 ## disease genes
 dis.genes = unique(c(clingen.genes$gene, gencc.genes$gene_symbol))
@@ -277,10 +304,12 @@ dominant.genes = unique(c(
   subset(clingen.genes, inheritance == 'AD')$gene,
   subset(gencc.genes, grepl('dominant', moi_title))$gene_symbol))
 
-if(all(ls() != 'al.df')){
-  al.df = loadVCF('./results/SG171796/SG171796.annot.vcf.gz')
+gene.list = dis.genes
+if(any(names(args$gene.list) == 'val')){
+  gene.list = scan(args$gene.list$val, '') %>% unique
 }
 
+al.df = loadVCF(args$vcf$val)
 ## al.df = al.df %>% filter(impact %in% c('MODERATE', 'HIGH'))
 
 ## Convert all NA into 0 or ''
@@ -295,10 +324,12 @@ al.df.new <- al.df %>%
 ## Tier 1-3
 
 ```{r}
-al.df.new %>% 
+tier.sel = al.df.new %>% 
     filter(AF<0.001, gene_type=='protein_coding') %>%
     assignTier %>% 
-    filter(tier<4) %>% 
+    filter(tier<4)
+
+tier.sel %>% 
     formatTable() %>%
     dplyr::select(pos, gene, ref, alt, type, gt, AF, effect, tier, tier.desc, impact, lof.pct, pLI, CLNSIG) %>% 
     datatable(filter='top', escape=FALSE, options=list(pageLength=25))
@@ -307,9 +338,11 @@ al.df.new %>%
 ## Around gene list
 
 ```{r}
-al.df.new %>% 
-    filter(AF<0.001, gene_type=='protein_coding', gene %in% gene.list) %>%
-    assignTier %>% 
+gene.sel = al.df.new %>% 
+  filter(AF<0.001, gene_type=='protein_coding', gene %in% gene.list) %>%
+  assignTier
+
+gene.sel %>%
     formatTable() %>%
     dplyr::select(pos, gene, ref, alt, type, gt, AF, effect, impact, lof.pct, pLI, RS_PROP, CLNSIG) %>% 
     datatable(filter='top', escape=FALSE, options=list(pageLength=25))
@@ -318,47 +351,117 @@ al.df.new %>%
 ## Around enhancers of disease genes
 
 ```{r}
-al.df.new %>% 
-    filter(AF<0.001, ENHDIS>0) %>%
-    assignTier %>% 
+enh.sel = al.df.new %>% 
+    filter(AF<0.001, ENHDIS>0) %>% 
+    assignTier
+
+enh.sel %>%
     formatTable() %>%
     dplyr::select(pos, ENHDIS, ref, alt, type, gt, AF, RS_PROP, gene, pLI) %>% 
     datatable(filter='top', escape=FALSE, options=list(pageLength=25))
 ```
 
+## AnnotSV
+
+```{r}
+asv = read.table(args$annotsv$val, as.is=TRUE, sep='\t', header=TRUE, quote='')
+asv$gt = asv[,which(colnames(asv)=='Annotation_mode')-1]
+
+if(mean(grepl('chr', sample(al.df$seqnames, 30)))>.9 & mean(grepl('chr', sample(asv$SV_chrom, 30))) < .1){
+  asv$SV_chrom = paste0('chr', asv$SV_chrom)
+}
+
+asv.sel = asv %>%
+  filter(Annotation_mode == 'full', AnnotSV_ranking_score > 0) %>%
+  mutate(seqnames=SV_chrom, start=SV_start, end=SV_end,
+         af=gsub('.*AF=([^;]+).*', '\\1', INFO),
+         af=ifelse(af==INFO, NA, as.numeric(af)),
+         RS_PROP=gsub('.*RS_PROP=([^;]+).*', '\\1', INFO),
+         RS_PROP=ifelse(RS_PROP==INFO, NA, as.numeric(RS_PROP)))
+
+asv.sel %>% 
+  formatTable() %>%
+  dplyr::select(pos, ID, SV_length, gt, af, RS_PROP,
+                Gene_name, AnnotSV_ranking_score, ACMG_class) %>%
+  datatable(filter='top', escape=FALSE, options=list(pageLength=25))
+```
+
+
 ## Simple repeats and VNTR variation
 
 ```{r}
-tr.samp = read.table('test.tsv.gz', header=TRUE, as.is=TRUE)
+tr.samp = read.table(args$rep.exp$val, header=TRUE, as.is=TRUE)
 
-tr.samp.gr = tr.samp %>% mutate(start=pos, end=start+ref, size=alt-ref) %>% 
+tr.samp.gr = tr.samp %>% mutate(start=pos, end=start+ref, size=alt-ref,
+                                haplotype=ifelse(as.logical(phased), haplotype, NA)) %>% 
   makeGRangesFromDataFrame(keep.extra.columns=TRUE)
 
 ol = findOverlaps(sr, tr.samp.gr, maxgap=1) %>% as.data.frame %>%
   mutate(size=tr.samp.gr$size[subjectHits],
-         sample=tr.samp.gr$sample[subjectHits],
-         phased=tr.samp.gr$phased[subjectHits],
+         haplotype=tr.samp.gr$haplotype[subjectHits],
          wol=width(pintersect(sr[queryHits], tr.samp.gr[subjectHits])),
          size=ifelse(size<0, -wol, size)) %>% 
-  group_by(queryHits, sample, phased) %>% summarize(size=sum(size), .groups='drop')
-
+  group_by(queryHits, haplotype) %>%
+  summarize(size=sum(size), .groups='drop')
 sr.sv = sr[ol$queryHits]
 sr.sv$size = ol$size
-sr.sv$phased = ol$phased
-sr.sv
+sr.sv$haplotype = ol$haplotype
 
-tr.cont = read.table('references/hprc-hgsvc-tr-catalog.tsv.gz', as.is=TRUE, header=TRUE)
+tr.cont = read.table(args$rep.exp.cont$val, as.is=TRUE, header=TRUE)
 tr.cont.s = tr.cont[,1:3]
 tr.cont.s$max_var = apply(tr.cont[,4:ncol(tr.cont)], 1, max)
 tr.cont.s$min_var = apply(tr.cont[,4:ncol(tr.cont)], 1, min)
+tr.cont.s$mean_var = apply(tr.cont[,4:ncol(tr.cont)], 1, mean)
+tr.cont.s$mad_var = apply(tr.cont[,4:ncol(tr.cont)], 1, mad)
+tr.cont.s$sd_var = apply(tr.cont[,4:ncol(tr.cont)], 1, sd)
 
 tr.df = sr.sv %>% as.data.frame %>% merge(tr.cont.s, all.x=TRUE)
 
-tr.df %>% filter(as.logical(phased), max_var<100) %>% arrange(desc(size-max_var)) %>%
-  dplyr::select(-strand, -phased) %>% head(20)
-## tr.df %>% filter(size>0) %>% 
-##   ggplot(aes(x=max_var, y=size)) +
-##   geom_point(alpha=.5) +
-##   theme_bw() +
-##   facet_wrap(~phased)
+tr.df = sr.sv %>% merge(tr.cont.s, all.x=TRUE) %>%
+  filter(!grepl('_', seqnames)) %>%
+  mutate(mean_var=replace_na(mean_var, 0),
+         sd_var=replace_na(sd_var, 0),
+         mad_var=replace_na(mad_var, 0),
+         max_var=replace_na(max_var, 0),
+         min_var=replace_na(min_var, 0))
+
+tr.gr = makeGRangesFromDataFrame(tr.df, keep.extra.columns=TRUE)
+
+## find variants near genes
+pc.genes = subset(genc, gene_type=='protein_coding' & type=='CDS')
+pc.d = distanceToNearest(tr.gr, pc.genes) %>% as.data.frame
+tr.df$pc.dist = Inf
+tr.df$pc.dist[pc.d$queryHits] = pc.d$distance
+
+## find variants near disease genes
+dis.genes.gr = subset(genc, gene_type=='protein_coding' & type=='CDS' & gene_name %in% dis.genes)
+dis.d = distanceToNearest(tr.gr, dis.genes.gr) %>% as.data.frame
+tr.df$dis.dist = Inf
+tr.df$dis.dist[dis.d$queryHits] = dis.d$distance
+tr.df$dis.gene[dis.d$queryHits] = dis.genes.gr$gene_name[dis.d$subjectHits]
+
+## compute a Z-score
+eps.sd = 10
+tr.df = tr.df %>% group_by(haplotype) %>%
+  mutate(z=ifelse(sd_var==0, (size-mean_var)/eps.sd, (size-mean_var)/sd_var))
+
+tr.sel = tr.df %>% filter(!is.na(haplotype),z >= 5)
+
+tr.sel %>% 
+  mutate(z=round(z, 3)) %>% 
+  formatTable() %>%
+  dplyr::select(pos, haplotype, width, size, z, pc.dist, dis.dist, dis.gene) %>%
+  arrange(rank(dis.dist) + rank(pc.dist) + rank(-z)) %>% 
+  datatable(filter='top', escape=FALSE, options=list(pageLength=25))
+```
+
+```{r}
+## save selected
+res = list(tier=tier.sel,
+           gene=gene.sel,
+           tr=tr.sel,
+           annotsv=asv.sel,
+           enh=enh.sel)
+
+saveRDS(res, file=args$out$val)
 ```
