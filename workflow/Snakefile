@@ -14,7 +14,6 @@ hpo_samples = []
 if 'hpo_tsv' in config:
     hpo = pandas.read_csv(config['hpo_tsv'], sep='\t', dtype={"sample": str}).set_index('sample', drop=False).sort_index()
     for samp in config['sample']:
-        print(samp)
         if samp in hpo['sample']:
             hpo_samples.append(samp)
 
@@ -32,7 +31,7 @@ rule all:
         tr=expand("results/{sample}/{sample}.tr.tsv.gz", sample=config['sample'])
 
 rule hpo:
-    input: expand("results/{sample}/snpeff.{sample}.svs.sveval.annotsv_pheno.tsv.gz", sample=config['sample'])
+    input: expand("results/{sample}/snpeff.{sample}.svs.sveval.annotsv_pheno.tsv.gz", sample=hpo_samples)
 
 rule annot_tr:
     input: expand("results/{sample}/{sample}.tr.tsv.gz", sample=config['sample'])

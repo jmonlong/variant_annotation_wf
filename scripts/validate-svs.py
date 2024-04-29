@@ -6,8 +6,6 @@ import sys
 import hashlib
 from pyfaidx import Fasta
 
-dump = open('/dev/null', 'w')
-
 
 def read_cluster_vcf(vcf_path, max_af=.01, flank_size=50000):
     # record SV info
@@ -189,6 +187,9 @@ args = parser.parse_args()
 # create temp directory if it doesn't exist
 if not os.path.exists(args.d):
     os.makedirs(args.d)
+
+log_path = os.path.join(args.d, "stderr.log")
+dump = open(log_path, 'w')
 
 # load reference genome index
 ref = Fasta(args.f)
