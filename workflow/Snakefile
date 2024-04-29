@@ -42,6 +42,9 @@ rule stats:
 rule denovo_svs:
     input: expand("results/{sample}/{sample}.denovo_svs.vcf.gz", sample=trio_probands)
 
+rule reports:
+    input: expand("results/{sample}/{sample}.variant_report.html", sample=config['sample'])
+
 # RULES
 
 def gethvcf(wildcards):
@@ -160,7 +163,7 @@ rule annotate_svs_sveval:
 
 rule annotate_svs_annotsv:
     input:
-        vcf="results/{sample}/snpeff.{sample}.svs.sveval.vcf.gz",
+        vcf="results/{sample}/snpeff.{sample}.svs.sveval.vgval.vcf.gz",
         db=config['annotsv'] + '/Annotations_Human/Genes/GRCh38/genes.RefSeq.sorted.bed'
     output: "results/{sample}/snpeff.{sample}.svs.sveval.annotsv.tsv.gz"
     log: 'logs/annotate_svs_annotsv.{sample}.log'
@@ -181,7 +184,7 @@ rule annotate_svs_annotsv:
 
 rule annotate_svs_annotsv_pheno:
     input:
-        vcf="results/{sample}/snpeff.{sample}.svs.sveval.vcf.gz",
+        vcf="results/{sample}/snpeff.{sample}.svs.sveval.vgval.vcf.gz",
         db=config['annotsv'] + '/Annotations_Human/Genes/GRCh38/genes.RefSeq.sorted.bed'
     output: "results/{sample}/snpeff.{sample}.svs.sveval.annotsv_pheno.tsv.gz"
     log: 'logs/annotate_svs_annotsv_pheno.{sample}.log'
@@ -334,4 +337,26 @@ rule validate_denovo_svs_with_vg:
         """
         python3 {input.script} -b {input.bam},{input.bam_p1},{input.bam_p2} -f {input.ref} -v {input.vcf} -d {params.tmp_dir} -t {threads} -o {output}
         rm -rf {params.tmp_dir}
+        """
+
+rule make_report:
+    input:
+        rmd="scripts/variant-report-sample.Rmd",
+        vcf="results/{sample}/{sample}.annot.vcf.gz",
+        annotsv="results/{sample}/snpeff.{sample}.svs.sveval.annotsv.tsv.gz",
+        tr="results/{sample}/{sample}.tr.tsv.gz",
+        tr_control=config['tr_catalog'],
+        db=config['svdb']
+    output:
+        html="results/{sample}/{sample}.variant_report.html",
+        rds="results/{sample}/{sample}.variant_report.rds"
+    params:
+        tmp_rmd="{sample}.variant_report.Rmd",
+        tmp_html="{sample}.variant_report.html"
+    shell:
+        """
+        cp {input.rmd} {params.tmp_rmd}
+        Rscript -e 'rmarkdown::render("{params.tmp_rmd}")' -v {input.vcf} -r {input.tr} -rc {input.tr_control} -d {input.db} -a {input.annotsv} -o {output.rds}
+        mv {params.tmp_html} {output.html}
+        rm -f {params.tmp_rmd}
         """
