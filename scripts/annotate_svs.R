@@ -51,7 +51,7 @@ parseSVs <- function(vcf.o){
 
 ## annotate SVs
 annotateFrequency <- function(svs, sv.catalogs, simprep=NULL,
-                              min.ol=.1, max.ins.dist=100){
+                              min.ol=.5, max.ins.dist=100){
   ## matrix with frequency of each variant (column) in the different SV catalogs (rows)
   af.mat = lapply(sv.catalogs, function(sv.cat){
     af = rep(0, length(svs))

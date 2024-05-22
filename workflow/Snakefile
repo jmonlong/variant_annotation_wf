@@ -339,28 +339,56 @@ rule validate_denovo_svs_with_vg:
         rm -rf {params.tmp_dir}
         """
 
-rule make_report:
-    input:
-        rmd="scripts/variant-report-sample.Rmd",
-        vcf="results/{sample}/{sample}.annot.vcf.gz",
-        annotsv="results/{sample}/snpeff.{sample}.svs.sveval.annotsv.tsv.gz",
-        tr="results/{sample}/{sample}.tr.tsv.gz",
-        tr_control=config['tr_catalog'],
-        db=config['svdb']
-    output:
-        html="results/{sample}/{sample}.variant_report.html",
-        rds="results/{sample}/{sample}.variant_report.rds"
-    params:
-        tmp_rmd="{sample}.variant_report.Rmd",
-        tmp_html="{sample}.variant_report.html"
-    resources:
-        mem='16G',
-        runtime='3h'
-    benchmark: 'benchmark/make_report.{sample}.tsv'
-    shell:
-        """
-        cp {input.rmd} {params.tmp_rmd}
-        Rscript -e 'rmarkdown::render("{params.tmp_rmd}")' -v {input.vcf} -r {input.tr} -rc {input.tr_control} -d {input.db} -a {input.annotsv} -o {output.rds}
-        mv {params.tmp_html} {output.html}
-        rm -f {params.tmp_rmd}
-        """
+if 'gene_list' in config:
+    rule make_report:
+        input:
+            rmd="scripts/variant-report-sample.Rmd",
+            vcf="results/{sample}/{sample}.annot.vcf.gz",
+            annotsv="results/{sample}/snpeff.{sample}.svs.sveval.annotsv.tsv.gz",
+            tr="results/{sample}/{sample}.tr.tsv.gz",
+            tr_control=config['tr_catalog'],
+            db=config['svdb'],
+            gl=config['gene_list']
+        output:
+            html="results/{sample}/{sample}.variant_report.html",
+            rds="results/{sample}/{sample}.variant_report.rds"
+        params:
+            tmp_rmd="{sample}.variant_report.Rmd",
+            tmp_html="{sample}.variant_report.html"
+        resources:
+            mem='16G',
+            runtime='3h'
+        benchmark: 'benchmark/make_report.{sample}.tsv'
+        shell:
+            """
+            cp {input.rmd} {params.tmp_rmd}
+            Rscript -e 'rmarkdown::render("{params.tmp_rmd}")' -g {input.gl} -v {input.vcf} -r {input.tr} -rc {input.tr_control} -d {input.db} -a {input.annotsv} -o {output.rds}
+            mv {params.tmp_html} {output.html}
+            rm -f {params.tmp_rmd}
+            """
+else:
+    rule make_report:
+        input:
+            rmd="scripts/variant-report-sample.Rmd",
+            vcf="results/{sample}/{sample}.annot.vcf.gz",
+            annotsv="results/{sample}/snpeff.{sample}.svs.sveval.annotsv.tsv.gz",
+            tr="results/{sample}/{sample}.tr.tsv.gz",
+            tr_control=config['tr_catalog'],
+            db=config['svdb']
+        output:
+            html="results/{sample}/{sample}.variant_report.html",
+            rds="results/{sample}/{sample}.variant_report.rds"
+        params:
+            tmp_rmd="{sample}.variant_report.Rmd",
+            tmp_html="{sample}.variant_report.html"
+        resources:
+            mem='16G',
+            runtime='3h'
+        benchmark: 'benchmark/make_report.{sample}.tsv'
+        shell:
+            """
+            cp {input.rmd} {params.tmp_rmd}
+            Rscript -e 'rmarkdown::render("{params.tmp_rmd}")' -v {input.vcf} -r {input.tr} -rc {input.tr_control} -d {input.db} -a {input.annotsv} -o {output.rds}
+            mv {params.tmp_html} {output.html}
+            rm -f {params.tmp_rmd}
+            """
