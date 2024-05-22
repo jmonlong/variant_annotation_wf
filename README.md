@@ -40,6 +40,13 @@ Two new INFO fields will represent the read support for the SV allele:
 
 ## Prepare annotation files
 
+### SnpEff
+
+```sh
+wget https://snpeff.blob.core.windows.net/databases/v5_1/snpEff_v5_1_GRCh38.105.zip
+unzip snpEff_v5_1_GRCh38.105.zip
+```
+
 ### gnomAD
 
 To reduce the size of the VCF with the variants in gnomAD, keeping only the field that we want to use (AF):
@@ -78,6 +85,22 @@ tabix -b 2 -e 2 -s 1 dbNSFP4.4a.small.txt.gz
 ```
 
 If we keep only information about GERP, CADD, MetaRNN, and ALFA, the file size decreases from 35G to about 2G.
+
+## AnnotSV
+
+```sh
+docker run -it -v `pwd`:/app -w /app -u `id -u $USER` quay.io/jmonlong/annotsv:3.4
+cp -r /build/AnnotSV .
+cd AnnotSV
+PREFIX=. make install-human-annotation
+cd share/AnnotSV/Annotations_Human/FtIncludedInSV/RegulatoryElements
+unzip GeneHancer-v5.9-for-AnnotSV.zip
+cd ../../../../../
+AnnotSV -SVinputFile ../example.vcf -outputDir temp_out -annotationsDir share/AnnotSV
+mv share/AnnotSV ../AnnotSV_annotations
+cd ..
+rm -fr AnnotSV
+```
 
 ## Test locally
 
