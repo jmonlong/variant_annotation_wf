@@ -355,6 +355,10 @@ if 'gene_list' in config:
         params:
             tmp_rmd="{sample}.variant_report.Rmd",
             tmp_html="{sample}.variant_report.html"
+        resources:
+            mem='16G',
+            runtime='3h'
+        benchmark: 'benchmark/make_report.{sample}.tsv'
         shell:
             """
             cp {input.rmd} {params.tmp_rmd}
@@ -377,6 +381,10 @@ else:
         params:
             tmp_rmd="{sample}.variant_report.Rmd",
             tmp_html="{sample}.variant_report.html"
+        resources:
+            mem='16G',
+            runtime='3h'
+        benchmark: 'benchmark/make_report.{sample}.tsv'
         shell:
             """
             cp {input.rmd} {params.tmp_rmd}
