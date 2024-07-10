@@ -96,7 +96,7 @@ PREFIX=. make install-human-annotation
 cd share/AnnotSV/Annotations_Human/FtIncludedInSV/RegulatoryElements
 unzip GeneHancer-v5.9-for-AnnotSV.zip
 cd ../../../../../
-AnnotSV -SVinputFile ../example.vcf -outputDir temp_out -annotationsDir share/AnnotSV
+AnnotSV -SVinputFile tests/AnnotSV/test_06_VCFfromLumpy/input/test1.vcf -outputDir temp_out -annotationsDir share/AnnotSV
 mv share/AnnotSV ../AnnotSV_annotations
 cd ..
 rm -fr AnnotSV
