@@ -4,6 +4,8 @@ pkgs = c('VariantAnnotation',
          'GenomicRanges',
          'dplyr',
          'ggplot2',
+         'rmarkdown',
+         'DT',
          'tidyr')
 
 ap.db <- available.packages(contrib.url(BiocManager::repositories()))

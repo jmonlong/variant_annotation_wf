@@ -47,6 +47,13 @@ RUN wget --no-check-certificate https://github.com/samtools/bcftools/releases/do
         ./configure && make && make install && \
         cd .. && rm -rf bcftools-1.17.tar.bz2
 
+## Install pandoc
+RUN apt-get update \
+    && wget https://github.com/jgm/pandoc/releases/download/1.18/pandoc-1.18-1-amd64.deb \
+    && dpkg -i pandoc-1.18-1-amd64.deb \
+    && apt-get install -f \
+    && rm pandoc-1.18-1-amd64.deb
+
 WORKDIR /opt/scripts
 ADD annotate_svs.R /opt/scripts
 ADD annotate_denovo_svs.R /opt/scripts
