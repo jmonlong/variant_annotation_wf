@@ -183,6 +183,9 @@ assignTierCond <- function(df, tier, desc){
     df
 }
 assignTier <- function(df){
+  if(nrow(df) == 0) {
+    return(df)
+  }
     df$tier = Inf
     df$tier.desc = NA
     ## helper intermediate information (homozygous, SV in sensitive genes)
@@ -291,6 +294,9 @@ formatTable <- function(df){
     }
     df$gene = linkGenes(df$gene, format='rawhtml')
   }
+  if('dis.gene' %in% colnames(df)){
+    df$dis.gene = linkGenes(df$dis.gene, format='rawhtml')
+  }
   df
 }
 
@@ -307,6 +313,7 @@ dominant.genes = unique(c(
 gene.list = dis.genes
 if(any(names(args$gene.list) == 'val')){
   gene.list = scan(args$gene.list$val, '') %>% unique
+  dis.genes = unique(c(dis.genes, gene.list))
 }
 
 al.df = loadVCF(args$vcf$val)
@@ -329,10 +336,13 @@ tier.sel = al.df.new %>%
     assignTier %>% 
     filter(tier<4)
 
-tier.sel %>% 
+if(nrow(tier.sel)>0){
+  tier.sel %>%
+    mutate(GOI=gene %in% gene.list) %>% 
     formatTable() %>%
-    dplyr::select(pos, gene, ref, alt, type, gt, AF, effect, tier, tier.desc, impact, lof.pct, pLI, CLNSIG) %>% 
+    dplyr::select(pos, gene, ref, alt, type, gt, AF, effect, tier, tier.desc, impact, lof.pct, pLI, CLNSIG, GOI) %>% 
     datatable(filter='top', escape=FALSE, options=list(pageLength=25))
+}
 ```
 
 ## Around gene list
@@ -342,23 +352,30 @@ gene.sel = al.df.new %>%
   filter(AF<0.001, gene_type=='protein_coding', gene %in% gene.list) %>%
   assignTier
 
-gene.sel %>%
+if(nrow(gene.sel)>0){
+  gene.sel %>%
     formatTable() %>%
     dplyr::select(pos, gene, ref, alt, type, gt, AF, effect, impact, lof.pct, pLI, RS_PROP, CLNSIG) %>% 
     datatable(filter='top', escape=FALSE, options=list(pageLength=25))
+}
 ```
 
 ## Around enhancers of disease genes
 
 ```{r}
 enh.sel = al.df.new %>% 
-    filter(AF<0.001, ENHDIS>0) %>% 
-    assignTier
+  filter(AF<0.001, ENHDIS>0) %>%
+  assignTier
 
-enh.sel %>%
+if(nrow(enh.sel) > 0){
+  
+  enh.sel %>%
+    mutate(GOI=gene %in% gene.list) %>% 
     formatTable() %>%
-    dplyr::select(pos, ENHDIS, ref, alt, type, gt, AF, RS_PROP, gene, pLI) %>% 
+    dplyr::select(pos, ENHDIS, ref, alt, type, gt, AF, RS_PROP, gene, pLI, GOI) %>% 
     datatable(filter='top', escape=FALSE, options=list(pageLength=25))
+
+}
 ```
 
 ## AnnotSV
@@ -367,7 +384,7 @@ enh.sel %>%
 asv = read.table(args$annotsv$val, as.is=TRUE, sep='\t', header=TRUE, quote='')
 asv$gt = asv[,which(colnames(asv)=='Annotation_mode')-1]
 
-if(mean(grepl('chr', sample(al.df$seqnames, 30)))>.9 & mean(grepl('chr', sample(asv$SV_chrom, 30))) < .1){
+if(mean(grepl('chr', sample(al.df$seqnames, min(30, nrow(al.df)))))>.9 & mean(grepl('chr', sample(asv$SV_chrom, min(30, nrow(asv))))) < .1){
   asv$SV_chrom = paste0('chr', asv$SV_chrom)
 }
 
@@ -379,11 +396,13 @@ asv.sel = asv %>%
          RS_PROP=gsub('.*RS_PROP=([^;]+).*', '\\1', INFO),
          RS_PROP=ifelse(RS_PROP==INFO, NA, as.numeric(RS_PROP)))
 
-asv.sel %>% 
-  formatTable() %>%
-  dplyr::select(pos, ID, SV_length, gt, af, RS_PROP,
-                Gene_name, AnnotSV_ranking_score, ACMG_class) %>%
-  datatable(filter='top', escape=FALSE, options=list(pageLength=25))
+if(nrow(asv.sel)>0){
+  asv.sel %>% 
+    formatTable() %>%
+    dplyr::select(pos, ID, SV_length, gt, af, RS_PROP,
+                  Gene_name, AnnotSV_ranking_score, ACMG_class) %>%
+    datatable(filter='top', escape=FALSE, options=list(pageLength=25))
+}
 ```
 
 
@@ -447,12 +466,15 @@ tr.df = tr.df %>% group_by(haplotype) %>%
 
 tr.sel = tr.df %>% filter(!is.na(haplotype),z >= 5)
 
-tr.sel %>% 
-  mutate(z=round(z, 3)) %>% 
-  formatTable() %>%
-  dplyr::select(pos, haplotype, width, size, z, pc.dist, dis.dist, dis.gene) %>%
-  arrange(rank(dis.dist) + rank(pc.dist) + rank(-z)) %>% 
-  datatable(filter='top', escape=FALSE, options=list(pageLength=25))
+if(nrow(tr.sel)>0){
+  tr.sel %>%
+    mutate(GOI=dis.gene %in% gene.list,
+           z=round(z, 3)) %>% 
+    formatTable() %>%
+    dplyr::select(pos, haplotype, width, size, z, pc.dist, dis.dist, dis.gene, GOI) %>%
+    arrange(rank(dis.dist) + rank(pc.dist) + rank(-z)) %>% 
+    datatable(filter='top', escape=FALSE, options=list(pageLength=25))
+}
 ```
 
 ```{r}

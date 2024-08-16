@@ -23,15 +23,21 @@ if 'bam_p1' in sinfo:
     for samp in sinfo[(sinfo.bam_p1.notnull()) & (sinfo.bam_p2.notnull())]['sample']:
         if samp in config['sample']:
             trio_probands.append(samp)
-    
+
+# AnnotSV output
+annotsv_tsvs = []
+for samp in config['sample']:
+    if samp in hpo_samples:
+        annotsv_tsvs.append("results/{sample}/snpeff.{sample}.svs_napu.sveval.annotsv_pheno.tsv.gz".format(sample=samp))
+    else:
+        annotsv_tsvs.append("results/{sample}/snpeff.{sample}.svs_napu.sveval.annotsv.tsv.gz".format(sample=samp))
+
+# main rules
 rule all:
     input:
         vcf=expand("results/{sample}/{sample}.annot.vcf.gz", sample=config['sample']),
-        annotsv=expand("results/{sample}/snpeff.{sample}.svs.sveval.annotsv.tsv.gz", sample=config['sample']),
+        annotsv=annotsv_tsvs,
         tr=expand("results/{sample}/{sample}.tr.tsv.gz", sample=config['sample'])
-
-rule hpo:
-    input: expand("results/{sample}/snpeff.{sample}.svs.sveval.annotsv_pheno.tsv.gz", sample=hpo_samples)
 
 rule annot_tr:
     input: expand("results/{sample}/{sample}.tr.tsv.gz", sample=config['sample'])
@@ -43,12 +49,18 @@ rule denovo_svs:
     input: expand("results/{sample}/{sample}.denovo_svs.vcf.gz", sample=trio_probands)
 
 rule reports:
-    input: expand("results/{sample}/{sample}.variant_report.html", sample=config['sample'])
+    input: expand("results/{sample}/{sample}.variant_report_napu.html", sample=config['sample'])
+
+rule reports_sniffles:
+    input: expand("results/{sample}/{sample}.variant_report_napu_sniffles.html", sample=config['sample'])
 
 # RULES
 
 def gethvcf(wildcards):
     return(sinfo.hvcf[wildcards.sample])
+
+def getsniffles(wildcards):
+    return(sinfo.sniffles[wildcards.sample])
 
 def gethvcf_p1(wildcards):
     return(sinfo.hvcf_p1[wildcards.sample])
@@ -76,6 +88,19 @@ rule split_multiallelic_vcf:
     shell:
         """
         bcftools norm -m -both --threads {threads} -Oz -o {output} {input}
+        """
+
+rule split_multiallelic_vcf_sniffles:
+    input: getsniffles
+    output: temp("results/{sample}/sniffles.{sample}.norm.vcf.gz")
+    threads: 4
+    resources:
+        mem='8G',
+        runtime='1h'
+    benchmark: 'benchmark/split_multiallelic_vcf.{sample}.tsv'
+    shell:
+        """
+        zcat {input} | sed "s/FORMAT\tSAMPLE/FORMAT\t{wildcards.sample}/" | bcftools view -i "INFO/SVLEN>-20000000 & INFO/SVLEN<20000000" | bcftools norm -m -both --threads {threads} -Oz -o {output}
         """
 
 rule keep_nonref_vcf:
@@ -123,11 +148,28 @@ rule annotate_with_snpeff:
         zcat {input.vcf} | snpEff -Xmx16g -nodownload -no-intergenic -dataDir "${{PWD}}/{params.db}" GRCh38.105 | gzip > {output}
         """
 
+rule annotate_sniffles_with_snpeff:
+    input:
+        vcf="results/{sample}/sniffles.{sample}.norm.sorted.vcf.gz",
+        db=config['snpeff'] + "/GRCh38.105/cytoBand.txt.gz"
+    output: "results/{sample}/snpeff.{sample}.svs_sniffles.vcf.gz"
+    params:
+        db=config['snpeff']
+    container: 'docker://quay.io/biocontainers/snpeff@sha256:7ac091da707f5d63f307eef4ee57c3f0e94eed49f86bbdace3d4be3a514ed410'
+    benchmark: 'benchmark/annotate_sniffles_with_snpeff.{sample}.tsv'
+    resources:
+        mem='16G',
+        runtime='3h'
+    shell:
+        """
+        zcat {input.vcf} | snpEff -Xmx16g -nodownload -no-intergenic -dataDir "${{PWD}}/{params.db}" GRCh38.105 | gzip > {output}
+        """
+
 rule split_small_large_variants:
     input: "results/{sample}/snpeff.{sample}.vcf.gz"
     output:
         small=temp("results/{sample}/snpeff.{sample}.smallvars.vcf.gz"),
-        sv="results/{sample}/snpeff.{sample}.svs.vcf.gz"
+        sv="results/{sample}/snpeff.{sample}.svs_napu.vcf.gz"
     resources:
         mem='8G',
         runtime='6h'
@@ -143,38 +185,40 @@ rule split_small_large_variants:
 rule annotate_svs_sveval:
     input:
         script="scripts/annotate_svs.R",
-        vcf="results/{sample}/snpeff.{sample}.svs.vcf.gz",
+        vcf="results/{sample}/snpeff.{sample}.svs{svmeth}.vcf.gz",
         db=config['svdb']
-    output: "results/{sample}/snpeff.{sample}.svs.sveval.vcf.gz"
+    output: "results/{sample}/snpeff.{sample}.svs{svmeth}.sveval.vcf.gz"
     container: "docker://quay.io/jmonlong/svannotate_sveval@sha256:c694bd3db95a07a49a231856c4662326976cc7f1d9875f746adb122ffc094ad6"
     params:
         tmp_dir=config['tmp_dir'],
-        tmp_vcf=config['tmp_dir'].rstrip('/') + "/temp_{sample}_svs.annotated.vcf"
+        tmp_vcf=config['tmp_dir'].rstrip('/') + "/temp_{sample}_svs{svmeth}.annotated.vcf"
     resources:
         mem='8G',
         runtime='3h'
-    benchmark: 'benchmark/annotate_svs_sveval.{sample}.tsv'
+    benchmark: 'benchmark/annotate_svs_sveval.svs{svmeth}.{sample}.tsv'
     shell:
         """
-        Rscript {input.script} {input.vcf} {input.db} {params.tmp_vcf}
+        # Rscript {input.script} {input.vcf} {input.db} {params.tmp_vcf}
+        gunzip -c {input.vcf} | bgzip > {params.tmp_vcf}
+        R CMD BATCH '--args {params.tmp_vcf} {input.db} {params.tmp_vcf}' {input.script} {params.tmp_vcf}.out
         bcftools sort -T {params.tmp_dir} -Oz -o {output} {params.tmp_vcf}
         rm -f {params.tmp_vcf}
         """
 
 rule annotate_svs_annotsv:
     input:
-        vcf="results/{sample}/snpeff.{sample}.svs.sveval.vgval.vcf.gz",
+        vcf="results/{sample}/snpeff.{sample}.svs{svmeth}.sveval.vgval.vcf.gz",
         db=config['annotsv'] + '/Annotations_Human/Genes/GRCh38/genes.RefSeq.sorted.bed'
-    output: "results/{sample}/snpeff.{sample}.svs.sveval.annotsv.tsv.gz"
-    log: 'logs/annotate_svs_annotsv.{sample}.log'
+    output: "results/{sample}/snpeff.{sample}.svs{svmeth}.sveval.annotsv.tsv.gz"
+    log: 'logs/annotate_svs{svmeth}_annotsv.{sample}.log'
     container: "docker://quay.io/jmonlong/annotsv:3.4"
     params:
-        tmp_dir=config['tmp_dir'].rstrip('/') + "/temp_annotsv.{sample}",
+        tmp_dir=config['tmp_dir'].rstrip('/') + "/temp_annotsv.svs{svmeth}.{sample}",
         annotsvdb=config['annotsv']
     resources:
-        mem='8G',
+        mem='32G',
         runtime='3h'
-    benchmark: 'benchmark/annotate_svs_annotsv.{sample}.tsv'
+    benchmark: 'benchmark/annotate_svs{svmeth}_annotsv.{sample}.tsv'
     shell:
         """
         AnnotSV -annotationsDir {params.annotsvdb} -SvinputFile {input.vcf} -outputDir {params.tmp_dir} > {log}
@@ -184,24 +228,40 @@ rule annotate_svs_annotsv:
 
 rule annotate_svs_annotsv_pheno:
     input:
-        vcf="results/{sample}/snpeff.{sample}.svs.sveval.vgval.vcf.gz",
+        vcf="results/{sample}/snpeff.{sample}.svs{svmeth}.sveval.vgval.vcf.gz",
         db=config['annotsv'] + '/Annotations_Human/Genes/GRCh38/genes.RefSeq.sorted.bed'
-    output: "results/{sample}/snpeff.{sample}.svs.sveval.annotsv_pheno.tsv.gz"
-    log: 'logs/annotate_svs_annotsv_pheno.{sample}.log'
+    output: "results/{sample}/snpeff.{sample}.svs{svmeth}.sveval.annotsv_pheno.tsv.gz"
+    log: 'logs/annotate_svs{svmeth}_annotsv_pheno.{sample}.log'
     container: "docker://quay.io/jmonlong/annotsv:3.4"
     params:
-        tmp_dir=config['tmp_dir'].rstrip('/') + "/temp_annotsv.{sample}",
+        tmp_dir=config['tmp_dir'].rstrip('/') + "/temp_annotsv.svs{svmeth}.{sample}",
         annotsvdb=config['annotsv'],
         hpo=lambda wildcards: hpo.hpo[wildcards.sample]
     resources:
-        mem='8G',
+        mem='32G',
         runtime='3h'
-    benchmark: 'benchmark/annotate_svs_annotsv.{sample}.tsv'
+    benchmark: 'benchmark/annotate_svs{svmeth}_annotsv.{sample}.tsv'
     shell:
         """
         AnnotSV -annotationsDir {params.annotsvdb} -SvinputFile {input.vcf} -hpo {params.hpo} -outputDir {params.tmp_dir} > {log}
         gzip -c {params.tmp_dir}/*.annotated.tsv > {output}
         rm  -rf {params.tmp_dir}
+        """
+
+rule merge_annotsv_tsvs:
+    input:
+        a_napu="results/{sample}/snpeff.{sample}.svs_napu.sveval.annotsv{pheno}.tsv.gz",
+        a_sniffles="results/{sample}/snpeff.{sample}.svs_sniffles.sveval.annotsv{pheno}.tsv.gz"
+    output: "results/{sample}/snpeff.{sample}.svs_napu_sniffles.sveval.annotsv{pheno}.tsv.gz"
+    params:
+        tmp_tsv=config['tmp_dir'].rstrip('/') + "/temp_merge_annotsv.{sample}.{pheno}.tsv"
+    localrule: True
+    shell:
+        """
+        gunzip -c {input.a_napu} > {params.tmp_tsv}
+        gunzip -c {input.a_sniffles} | sed 1d >> {params.tmp_tsv}
+        gzip -c {params.tmp_tsv} > {output}
+        rm -f {params.tmp_tsv}
         """
 
 rule annotate_smallvars_snpsift:
@@ -228,14 +288,14 @@ rule annotate_smallvars_snpsift:
         SnpSift -Xmx8g dbnsfp -db {input.dbnsfp} -f GERP++_RS,CADD_raw,CADD_phred,MetaRNN_score,MetaRNN_pred,ALFA_Total_AF {params.tmp_vcf} | gzip > {output}
         rm -f {params.tmp_vcf}
         """
-        
+
 rule validate_svs_with_vg:
     input:
-        vcf="results/{sample}/snpeff.{sample}.svs.sveval.vcf.gz",
+        vcf="results/{sample}/snpeff.{sample}.svs_napu.sveval.vcf.gz",
         bam=getbam,
         ref=config['ref'],
         script='scripts/validate-svs.py'
-    output: "results/{sample}/snpeff.{sample}.svs.sveval.vgval.vcf.gz"
+    output: "results/{sample}/snpeff.{sample}.svs_napu.sveval.vgval.vcf.gz"
     container: 'docker://quay.io/jmonlong/svvalidate_vgcall@sha256:8020ea9a9fd784c5dab74fd366cd089df5bb7f17154b79e4dcc780596c30b0ed'
     threads: 8
     params:
@@ -251,9 +311,15 @@ rule validate_svs_with_vg:
         rm -rf {params.tmp_dir}
         """
 
+rule dont_validate_sniffles_svs_with_vg:
+    input: "results/{sample}/snpeff.{sample}.svs_sniffles.sveval.vcf.gz",
+    output: "results/{sample}/snpeff.{sample}.svs_sniffles.sveval.vgval.vcf.gz"
+    localrule: True
+    shell: "cp {input} {output}"
+
 rule merge_small_svs:
     input:
-        svs="results/{sample}/snpeff.{sample}.svs.sveval.vgval.vcf.gz",
+        svs="results/{sample}/snpeff.{sample}.svs_napu.sveval.vgval.vcf.gz",
         small="results/{sample}/snpeff.{sample}.smallvars.annot.vcf.gz"
     output: "results/{sample}/{sample}.annot.vcf.gz"
     params:
@@ -272,6 +338,33 @@ rule merge_small_svs:
         bcftools index -t {params.tmp_svs}
         bcftools concat -a -Oz -o {output} {params.tmp_small} {params.tmp_svs}
         rm -f {params.tmp_small} {params.tmp_svs} {params.tmp_small}.tbi {params.tmp_svs}.tbi
+        """
+
+rule merge_small_svs_with_sniffles:
+    input:
+        svs_napu="results/{sample}/snpeff.{sample}.svs_napu.sveval.vgval.vcf.gz",
+        svs_sniffles="results/{sample}/snpeff.{sample}.svs_sniffles.sveval.vcf.gz",
+        small="results/{sample}/snpeff.{sample}.smallvars.annot.vcf.gz"
+    output: "results/{sample}/{sample}.annot.with_sniffles.vcf.gz"
+    params:
+        tmp_dir=config['tmp_dir'],
+        tmp_small=config['tmp_dir'].rstrip('/') + '/temp.merge_small_svs_with_sniffles.{sample}.small.vcf.gz',
+        tmp_svs_napu=config['tmp_dir'].rstrip('/') + '/temp.merge_small_svs_with_sniffles.{sample}.svs_napu.vcf.gz',
+        tmp_svs_sniffles=config['tmp_dir'].rstrip('/') + '/temp.merge_small_svs_with_sniffles.{sample}.svs_sniffles.vcf.gz'
+    benchmark: 'benchmark/merge_small_svs.{sample}.tsv'
+    resources:
+        mem='8G',
+        runtime='1h'
+    shell:
+        """
+        bcftools sort -T {params.tmp_dir} -Oz -o {params.tmp_small} {input.small}
+        bcftools index -t {params.tmp_small}
+        bcftools sort -T {params.tmp_dir} -Oz -o {params.tmp_svs_napu} {input.svs_napu}
+        bcftools index -t {params.tmp_svs_napu}
+        bcftools sort -T {params.tmp_dir} -Oz -o {params.tmp_svs_sniffles} {input.svs_sniffles}
+        bcftools index -t {params.tmp_svs_sniffles}
+        bcftools concat -a -Oz -o {output} {params.tmp_small} {params.tmp_svs_napu} {params.tmp_svs_sniffles}
+        rm -f {params.tmp_small} {params.tmp_svs_napu} {params.tmp_svs_sniffles} {params.tmp_small}.tbi {params.tmp_svs_napu}.tbi {params.tmp_svs_sniffles}.tbi
         """
 
 rule prepare_tr:
@@ -339,26 +432,39 @@ rule validate_denovo_svs_with_vg:
         rm -rf {params.tmp_dir}
         """
 
+def getannotsv(wildcards):
+    if wildcards.sample in hpo_samples:
+        return("results/{sample}/snpeff.{sample}.svs_{svmeth}.sveval.annotsv_pheno.tsv.gz")
+    else:
+        return("results/{sample}/snpeff.{sample}.svs_{svmeth}.sveval.annotsv.tsv.gz")
+
+def getVcfForReport(wildcards):
+    if wildcards.svmeth == 'napu':
+        return("results/{sample}/{sample}.annot.vcf.gz")
+    elif wildcards.svmeth == 'napu_sniffles':
+        return("results/{sample}/{sample}.annot.with_sniffles.vcf.gz")
+
 if 'gene_list' in config:
     rule make_report:
         input:
             rmd="scripts/variant-report-sample.Rmd",
-            vcf="results/{sample}/{sample}.annot.vcf.gz",
-            annotsv="results/{sample}/snpeff.{sample}.svs.sveval.annotsv.tsv.gz",
+            vcf=getVcfForReport,
+            annotsv=getannotsv,
             tr="results/{sample}/{sample}.tr.tsv.gz",
             tr_control=config['tr_catalog'],
             db=config['svdb'],
             gl=config['gene_list']
         output:
-            html="results/{sample}/{sample}.variant_report.html",
-            rds="results/{sample}/{sample}.variant_report.rds"
+            html="results/{sample}/{sample}.variant_report_{svmeth}.html",
+            rds="results/{sample}/{sample}.variant_report_{svmeth}.rds"
         params:
-            tmp_rmd="{sample}.variant_report.Rmd",
-            tmp_html="{sample}.variant_report.html"
+            tmp_rmd="{sample}.variant_report_{svmeth}.Rmd",
+            tmp_html="{sample}.variant_report_{svmeth}.html"
         resources:
             mem='16G',
             runtime='3h'
-        benchmark: 'benchmark/make_report.{sample}.tsv'
+        container: 'docker://quay.io/jmonlong/svannotate_sveval:0.5'
+        benchmark: 'benchmark/make_report_{svmeth}.{sample}.tsv'
         shell:
             """
             cp {input.rmd} {params.tmp_rmd}
@@ -370,21 +476,22 @@ else:
     rule make_report:
         input:
             rmd="scripts/variant-report-sample.Rmd",
-            vcf="results/{sample}/{sample}.annot.vcf.gz",
-            annotsv="results/{sample}/snpeff.{sample}.svs.sveval.annotsv.tsv.gz",
+            vcf=getVcfForReport,
+            annotsv=getannotsv,
             tr="results/{sample}/{sample}.tr.tsv.gz",
             tr_control=config['tr_catalog'],
             db=config['svdb']
         output:
-            html="results/{sample}/{sample}.variant_report.html",
-            rds="results/{sample}/{sample}.variant_report.rds"
+            html="results/{sample}/{sample}.variant_report_{svmeth}.html",
+            rds="results/{sample}/{sample}.variant_report_{svmeth}.rds"
         params:
-            tmp_rmd="{sample}.variant_report.Rmd",
-            tmp_html="{sample}.variant_report.html"
+            tmp_rmd="{sample}.variant_report_{svmeth}.Rmd",
+            tmp_html="{sample}.variant_report_{svmeth}.html"
         resources:
             mem='16G',
             runtime='3h'
-        benchmark: 'benchmark/make_report.{sample}.tsv'
+        benchmark: 'benchmark/make_report_{svmeth}.{sample}.tsv'
+        container: 'docker://quay.io/jmonlong/svannotate_sveval:0.5'
         shell:
             """
             cp {input.rmd} {params.tmp_rmd}
