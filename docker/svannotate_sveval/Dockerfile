@@ -1,4 +1,4 @@
-FROM ubuntu:20.04
+FROM ubuntu:22.04
 MAINTAINER jmonlong@ucsc.edu
 
 # Prevent dpkg from trying to ask any questions, ever
@@ -16,7 +16,7 @@ RUN apt-get update && \
     r-base r-base-dev \
     libxml2-dev \
     libssl-dev \
-    libmariadbclient-dev \
+    libmariadb-dev \
     libcurl4-openssl-dev \
     apt-transport-https \
     software-properties-common \
@@ -30,15 +30,9 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 ## R with sveval package
-RUN Rscript -e "install.packages('XML', repos = 'http://www.omegahat.net/R')"
-
 ADD install.R /home
 
 RUN R -f /home/install.R
-
-RUN Rscript -e "BiocManager::install('remotes')"
-
-RUN Rscript -e "BiocManager::install('jmonlong/sveval')"
 
 ## bcftools
 RUN wget --no-check-certificate https://github.com/samtools/bcftools/releases/download/1.17/bcftools-1.17.tar.bz2 && \
