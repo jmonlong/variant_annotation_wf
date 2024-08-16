@@ -4,7 +4,10 @@ pkgs = c('VariantAnnotation',
          'GenomicRanges',
          'dplyr',
          'ggplot2',
-         'tidyr')
+         'remotes',
+         'tidyr',
+         'DT',
+         'rmarkdown')
 
 ap.db <- available.packages(contrib.url(BiocManager::repositories()))
 ap <- rownames(ap.db)
@@ -12,6 +15,8 @@ ap <- rownames(ap.db)
 pkgs_to_install <- pkgs[pkgs %in% ap]
 
 BiocManager::install(pkgs_to_install, update=FALSE, ask=FALSE)
+
+BiocManager::install('jmonlong/sveval', update=FALSE, ask=FALSE)
 
 # just in case there were warnings, we want to see them
 # without having to scroll up:

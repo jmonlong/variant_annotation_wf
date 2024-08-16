@@ -1,1 +1,12 @@
 *~
+/.snakemake/
+/benchmark/
+/logs/
+/results/
+/temp/
+/test/AnnotSV_annotations/
+/test/data/
+/test/hg38.fa
+/test/hg38.fa.fai
+/test/annotation_database.RData
+/test/hprc-hgsvc-tr-catalog.tsv.gz
