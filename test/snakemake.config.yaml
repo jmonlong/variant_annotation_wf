@@ -1,0 +1,11 @@
+clinvar: test/fake.clinvar.vcf.gz
+dbnsfp: test/fake.dbNSFP.txt.gz
+gnomad: test/fake.gnomad.vcf.gz
+svdb: test/sv_annotation_database.test_subset.RData
+annotsv: test/AnnotSV_annotations
+snpeff: test/data
+ref: test/hg38.fa
+tr_catalog: test/hprc-hgsvc-tr-catalog.test_subset.tsv
+sample_info: test/snakemake.sample_info.tsv
+sample: ''
+tmp_dir: temp

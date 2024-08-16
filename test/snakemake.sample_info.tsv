@@ -1,0 +1,2 @@
+sample	bam	hvcf
+test	test/reads.bam	test/test.vcf.gz
