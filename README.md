@@ -1,6 +1,5 @@
-# Variant annotation
-
-Variant annotation workflow
+# LRGenotate: Long-Read Genome Variant Annotation Tool
+![LRGenotate logo](logo/logo.png)
 
 - Variants are annotated with their predicted impact on the genes using SNPeff
 - Then with public variant databases:
@@ -18,9 +17,12 @@ The workflow was written in
 The worklow annotates a VCF file containing small variants and structural variants (SVs).
 Mapped reads should also be provided to perform some QC on the SVs.
 
-After [preparing the annotation files](#prepare-annotation-files), jump to the [WDL]() or [Snakemake]() sections to run the workflow.
+After [preparing the annotation files](#prepare-annotation-files), jump to the [WDL]() or [Snakemake](#snakemake) sections to run the workflow.
 
 ## Prepare annotation files
+All the files referenced here correspond to the specific versions used in [Negi et al., 2024](https://www.medrxiv.org/content/10.1101/2024.08.22.24312327v1). If you wish to use a different version of these databases, you can modify the commands accordingly to download the desired version.
+
+Make sure that all annotation files are saved in the `references/` directory
 
 ### SnpEff
 
@@ -104,7 +106,15 @@ rm -fr AnnotSV
 
 ### ClinVar VCF
 
-*Details soon...*
+Download ClinVar variants:
+
+```sh
+wget https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/clinvar_20230318.vcf.gz
+tabix -p vcf clinvar_20230318.vcf.gz
+```
+
+The clinvar VCF file is updated continuously by ClinVar, so it's best to keep an up-to-date one.
+
 
 ## Running the workflow
 
@@ -153,7 +163,9 @@ Two new INFO fields will represent the read support for the SV allele:
 
 ### Snakemake
 
-Assuming you're in the root of the repository, run the workflow with:
+Make sure that all annotation files are in the `references/` directory
+
+Now assuming you're in the root of the repository, run the workflow with:
 
 ```sh
 snakemake --use-singularity --configfile config.yaml -p reports --cores 4
@@ -168,7 +180,7 @@ The `config.yaml` parameters are:
 - `clinvar`: VCF with ClinVar (prepared above)
 - `dbnsfp`: dbNSFP indexed file ([prepared above](#dbnsfp))
 - `gnomad`: gnomAD VCF with allele frequencies ([prepared above](#gnomad))
-- `svdb`: RData file with misc annotations, mostly for SV annotatio ([prepared above](#misc-annotations-in-r-object))
+- `svdb`: RData file with misc annotations, mostly for SV annotation ([prepared above](#misc-annotations-in-r-object))
 - `annotsv`: folder with the AnnotSV annotations ([prepared above](#annotsv))
 - `snpeff`: folder with the SnpEff databse ([prepared above](#snpeff))
 - `ref`: (indexed) FASTA of the reference genome
