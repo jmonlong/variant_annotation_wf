@@ -27,7 +27,7 @@ samtools faidx hg38.fa
 wget https://snpeff.blob.core.windows.net/databases/v5_1/snpEff_v5_1_GRCh38.105.zip
 unzip snpEff_v5_1_GRCh38.105.zip
 
-# AnnotSV
+# AnnotSV (without the GeneHancer database). To generate with the GeneHancer database, check ../README.md
 docker run -it -v `pwd`:/app -w /app -u `id -u $USER` quay.io/jmonlong/annotsv:3.4
 # - # IN DOCKER CONTAINER
 cp -r /build/AnnotSV .
