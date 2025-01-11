@@ -30,7 +30,7 @@ args$annotsv = list(arg='-a', desc='TSV file from AnnotSV')
 args$out = list(arg='-o', desc='summary RDS file to output', val='variant-report-sample.rds')
 ## parse arguments
 args.i = commandArgs(TRUE)
-## args.i = unlist(strsplit('-g /home/jean.monlong/Documents/irsd/lrs-odd/annotation_smk/genedx.anophthalmia.microphthalmia.txt -v /home/jean.monlong/Documents/irsd/lrs-odd/annotation_smk/results/SG171796/SG171796.annot.vcf.gz -r /home/jean.monlong/Documents/irsd/lrs-odd/annotation_smk/results/SG171796/SG171796.tr.tsv.gz -rc /home/jean.monlong/Documents/irsd/lrs-odd/annotation_smk/references/hprc-hgsvc-tr-catalog.tsv.gz -d /home/jean.monlong/Documents/irsd/lrs-odd/annotation_smk/references/annotation_database.RData -a /home/jean.monlong/Documents/irsd/lrs-odd/annotation_smk/results/SG171796/snpeff.SG171796.svs.sveval.annotsv_pheno.tsv.gz', ' '))
+## args.i = unlist(strsplit('-v /private/groups/migalab/shnegi/CARD/vcf_annotation/annotation_smk_CARD/results/HBCC_81925_FTX/HBCC_81925_FTX.annot.vcf.gz -r /private/groups/migalab/shnegi/CARD/vcf_annotation/annotation_smk_CARD/results/HBCC_81925_FTX/HBCC_81925_FTX.tr.tsv.gz -rc /private/groups/migalab/shnegi/CARD/vcf_annotation/annotation_smk_CARD/references/hprc-hgsvc-tr-catalog.tsv.gz -d /private/groups/migalab/shnegi/CARD/vcf_annotation/annotation_smk_CARD/references/annotation_database.RData -a /private/groups/migalab/shnegi/CARD/vcf_annotation/annotation_smk_CARD/results/HBCC_81925_FTX/snpeff.HBCC_81925_FTX.svs.sveval.annotsv.tsv.gz', ' '))
 arg.to.arg = names(args)
 names(arg.to.arg) = as.character(sapply(args, function(l) l$arg))
 ii = 1
@@ -317,7 +317,6 @@ if(any(names(args$gene.list) == 'val')){
 }
 
 al.df = loadVCF(args$vcf$val)
-## al.df = al.df %>% filter(impact %in% c('MODERATE', 'HIGH'))
 
 ## Convert all NA into 0 or ''
 al.df.new <- al.df %>%
@@ -328,54 +327,16 @@ al.df.new <- al.df %>%
 
 # {.tabset}
 
-## Tier 1-3
+## Entire annotated dataframe (gene impacts from snpeff)
 
 ```{r}
-tier.sel = al.df.new %>% 
-    filter(AF<0.001, gene_type=='protein_coding') %>%
-    assignTier %>% 
-    filter(tier<4)
-
-if(nrow(tier.sel)>0){
-  tier.sel %>%
-    mutate(GOI=gene %in% gene.list) %>% 
-    formatTable() %>%
-    dplyr::select(pos, gene, ref, alt, type, gt, AF, effect, tier, tier.desc, impact, lof.pct, pLI, CLNSIG, GOI) %>% 
-    datatable(filter='top', escape=FALSE, options=list(pageLength=25))
-}
-```
-
-## Around gene list
-
-```{r}
-gene.sel = al.df.new %>% 
-  filter(AF<0.001, gene_type=='protein_coding', gene %in% gene.list) %>%
-  assignTier
-
-if(nrow(gene.sel)>0){
-  gene.sel %>%
-    formatTable() %>%
-    dplyr::select(pos, gene, ref, alt, type, gt, AF, effect, impact, lof.pct, pLI, RS_PROP, CLNSIG) %>% 
-    datatable(filter='top', escape=FALSE, options=list(pageLength=25))
-}
+seff.sel = al.df.new %>% filter(gene_type=='protein_coding')
 ```
 
 ## Around enhancers of disease genes
 
 ```{r}
-enh.sel = al.df.new %>% 
-  filter(AF<0.001, ENHDIS>0) %>%
-  assignTier
-
-if(nrow(enh.sel) > 0){
-  
-  enh.sel %>%
-    mutate(GOI=gene %in% gene.list) %>% 
-    formatTable() %>%
-    dplyr::select(pos, ENHDIS, ref, alt, type, gt, AF, RS_PROP, gene, pLI, GOI) %>% 
-    datatable(filter='top', escape=FALSE, options=list(pageLength=25))
-
-}
+enh.sel = al.df.new %>% filter(ENHDIS>0)
 ```
 
 ## AnnotSV
@@ -384,7 +345,7 @@ if(nrow(enh.sel) > 0){
 asv = read.table(args$annotsv$val, as.is=TRUE, sep='\t', header=TRUE, quote='')
 asv$gt = asv[,which(colnames(asv)=='Annotation_mode')-1]
 
-if(mean(grepl('chr', sample(al.df$seqnames, min(30, nrow(al.df)))))>.9 & mean(grepl('chr', sample(asv$SV_chrom, min(30, nrow(asv))))) < .1){
+if(mean(grepl('chr', sample(al.df$seqnames, 30)))>.9 & mean(grepl('chr', sample(asv$SV_chrom, 30))) < .1){
   asv$SV_chrom = paste0('chr', asv$SV_chrom)
 }
 
@@ -395,14 +356,6 @@ asv.sel = asv %>%
          af=ifelse(af==INFO, NA, as.numeric(af)),
          RS_PROP=gsub('.*RS_PROP=([^;]+).*', '\\1', INFO),
          RS_PROP=ifelse(RS_PROP==INFO, NA, as.numeric(RS_PROP)))
-
-if(nrow(asv.sel)>0){
-  asv.sel %>% 
-    formatTable() %>%
-    dplyr::select(pos, ID, SV_length, gt, af, RS_PROP,
-                  Gene_name, AnnotSV_ranking_score, ACMG_class) %>%
-    datatable(filter='top', escape=FALSE, options=list(pageLength=25))
-}
 ```
 
 
@@ -465,22 +418,11 @@ tr.df = tr.df %>% group_by(haplotype) %>%
   mutate(z=ifelse(sd_var==0, (size-mean_var)/eps.sd, (size-mean_var)/sd_var))
 
 tr.sel = tr.df %>% filter(!is.na(haplotype),z >= 5)
-
-if(nrow(tr.sel)>0){
-  tr.sel %>%
-    mutate(GOI=dis.gene %in% gene.list,
-           z=round(z, 3)) %>% 
-    formatTable() %>%
-    dplyr::select(pos, haplotype, width, size, z, pc.dist, dis.dist, dis.gene, GOI) %>%
-    arrange(rank(dis.dist) + rank(pc.dist) + rank(-z)) %>% 
-    datatable(filter='top', escape=FALSE, options=list(pageLength=25))
-}
 ```
 
 ```{r}
 ## save selected
-res = list(tier=tier.sel,
-           gene=gene.sel,
+res = list(snpeff=seff.sel,
            tr=tr.sel,
            annotsv=asv.sel,
            enh=enh.sel)

@@ -141,8 +141,8 @@ rule annotate_with_snpeff:
     container: 'docker://quay.io/biocontainers/snpeff@sha256:7ac091da707f5d63f307eef4ee57c3f0e94eed49f86bbdace3d4be3a514ed410'
     benchmark: 'benchmark/annotate_with_snpeff.{sample}.tsv'
     resources:
-        mem='16G',
-        runtime='3h'
+        mem='100G',
+        runtime='9h'
     shell:
         """
         zcat {input.vcf} | snpEff -Xmx16g -nodownload -no-intergenic -dataDir "${{PWD}}/{params.db}" GRCh38.105 | gzip > {output}
@@ -158,8 +158,8 @@ rule annotate_sniffles_with_snpeff:
     container: 'docker://quay.io/biocontainers/snpeff@sha256:7ac091da707f5d63f307eef4ee57c3f0e94eed49f86bbdace3d4be3a514ed410'
     benchmark: 'benchmark/annotate_sniffles_with_snpeff.{sample}.tsv'
     resources:
-        mem='16G',
-        runtime='3h'
+        mem='100G',
+        runtime='9h'
     shell:
         """
         zcat {input.vcf} | snpEff -Xmx16g -nodownload -no-intergenic -dataDir "${{PWD}}/{params.db}" GRCh38.105 | gzip > {output}
@@ -171,15 +171,15 @@ rule split_small_large_variants:
         small=temp("results/{sample}/snpeff.{sample}.smallvars.vcf.gz"),
         sv="results/{sample}/snpeff.{sample}.svs_napu.vcf.gz"
     resources:
-        mem='8G',
-        runtime='6h'
+        mem='100G',
+        runtime='9h'
     params:
         tmp_dir=config['tmp_dir']
     benchmark: 'benchmark/split_small_large_variants.{sample}.tsv'
     shell:
         """
-        bcftools view -i "STRLEN(REF)>=30 | MAX(STRLEN(ALT))>=30" -Oz -o {output.sv} {input}
-        bcftools view -i "STRLEN(REF)<30 & MAX(STRLEN(ALT))<30" {input} | bcftools sort -T {params.tmp_dir} -Oz -o {output.small}
+        bcftools view -i "STRLEN(REF)>=50 | MAX(STRLEN(ALT))>=50" -Oz -o {output.sv} {input}
+        bcftools view -i "STRLEN(REF)<50 & MAX(STRLEN(ALT))<50" {input} | bcftools sort -T {params.tmp_dir} -Oz -o {output.small}
         """
 
 rule annotate_svs_sveval:
@@ -193,8 +193,8 @@ rule annotate_svs_sveval:
         tmp_dir=config['tmp_dir'],
         tmp_vcf=config['tmp_dir'].rstrip('/') + "/temp_{sample}_svs{svmeth}.annotated.vcf"
     resources:
-        mem='8G',
-        runtime='3h'
+        mem='100G',
+        runtime='9h'
     benchmark: 'benchmark/annotate_svs_sveval.svs{svmeth}.{sample}.tsv'
     shell:
         """
@@ -216,8 +216,8 @@ rule annotate_svs_annotsv:
         tmp_dir=config['tmp_dir'].rstrip('/') + "/temp_annotsv.svs{svmeth}.{sample}",
         annotsvdb=config['annotsv']
     resources:
-        mem='32G',
-        runtime='3h'
+        mem='200G',
+        runtime='9h'
     benchmark: 'benchmark/annotate_svs{svmeth}_annotsv.{sample}.tsv'
     shell:
         """
@@ -238,8 +238,8 @@ rule annotate_svs_annotsv_pheno:
         annotsvdb=config['annotsv'],
         hpo=lambda wildcards: hpo.hpo[wildcards.sample]
     resources:
-        mem='32G',
-        runtime='3h'
+        mem='200G',
+        runtime='9h'
     benchmark: 'benchmark/annotate_svs{svmeth}_annotsv.{sample}.tsv'
     shell:
         """
@@ -274,17 +274,16 @@ rule annotate_smallvars_snpsift:
     container: "docker://quay.io/biocontainers/snpsift@sha256:049babfac841d15a92d8febfc10a25f5aa109c9fe6670af35ea79583a1c78402"
     params:
         tmp_vcf=config['tmp_dir'].rstrip('/') + '/temp_snpsift.{sample}.vcf'
-    threads: 4
+    threads: 32
     resources:
-        mem="8G",
-        runtime='3h'
+        mem="500G",
+        runtime='9h'
     benchmark: 'benchmark/annotate_smallvars_snpsift.{sample}.tsv'
     shell:
         """
         zcat {input.vcf} | \
-        SnpSift -Xmx4g annotate -info CLNSIG {input.clinvar} | \
-        SnpSift -Xmx1g filter "(ANN[*].IMPACT has 'HIGH') | (ANN[*].IMPACT has 'MODERATE') | ((exists LOF[*].PERC) & (LOF[*].PERC > 0.9)) | (exists CLNSIG)" | \
-        SnpSift -Xmx8g annotate -noId {input.gnomad} > {params.tmp_vcf}
+        SnpSift -Xmx200g annotate -info CLNSIG {input.clinvar} | \
+        SnpSift -Xmx400g annotate -noId {input.gnomad} > {params.tmp_vcf}
         SnpSift -Xmx8g dbnsfp -db {input.dbnsfp} -f GERP++_RS,CADD_raw,CADD_phred,MetaRNN_score,MetaRNN_pred,ALFA_Total_AF {params.tmp_vcf} | gzip > {output}
         rm -f {params.tmp_vcf}
         """
@@ -461,8 +460,8 @@ if 'gene_list' in config:
             tmp_rmd="{sample}.variant_report_{svmeth}.Rmd",
             tmp_html="{sample}.variant_report_{svmeth}.html"
         resources:
-            mem='16G',
-            runtime='3h'
+            mem='200G',
+            runtime='8h'
         container: 'docker://quay.io/jmonlong/svannotate_sveval:0.5'
         benchmark: 'benchmark/make_report_{svmeth}.{sample}.tsv'
         shell:
@@ -488,8 +487,8 @@ else:
             tmp_rmd="{sample}.variant_report_{svmeth}.Rmd",
             tmp_html="{sample}.variant_report_{svmeth}.html"
         resources:
-            mem='16G',
-            runtime='3h'
+            mem='200G',
+            runtime='8h'
         benchmark: 'benchmark/make_report_{svmeth}.{sample}.tsv'
         container: 'docker://quay.io/jmonlong/svannotate_sveval:0.5'
         shell:
