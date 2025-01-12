@@ -187,13 +187,69 @@ The `config.yaml` parameters are:
 - `tr_catalog`: Tandem repeat expansion in public controls ([prepared above](#tandem-repeat-expansion-in-public-controls))
 - `sample_info`: TSV file with sample information (name, VCF, BAM)
 - `sample`: sample(s) to process. If empty, all samples in `sample_info` will be processed.
-- `tmp_dir`: a directory to use as temporary directory.
+- `tmp_dir`: a directory to use as temporary directory. **NOTE:** Make sure to create one before running the workflow.
 
 The `sample_info` parameter point to a TSV file with (at least) the following three columns:
 
 - `sample`: sample name
 - `bam`: path to the (indexed) BAM file
 - `hvcf`: harmonized VCF with small and structural variants (e.g. from the [Napu pipeline](https://github.com/nanoporegenomics/napu_wf)).
+
+Optional columns: 
+
+- `sniffles`: structural variant VCF by [Sniffles](https://github.com/fritzsedlazeck/Sniffles) (e.g. from the Napu pipeline)
+- `hvcf_p1` : harmonized VCF of parent 1 (for identifying de novo variants in child/proband)
+- `hvcf_p2` : harmonized VCF of parent 2 (for identifying de novo variants in child/proband)
+- `bam_p1` : path to the (indexed) BAM file for parent 1
+- `bam_p2` : path to the (indexed) BAM file for parent 2
+
+#### Output report
+The tool outputs a report as an `.rds` object containing four dataframes.
+
+1. `snpeff`: All variants (small and sv) with snpEff annotations (protein-coding genes only).
+2. `enh`: Variants near gene enhancers.
+3. `annotsv`: Variants annotated using the AnnotSV database.
+4. `tr`: Tandem-repeat expansions (z-score ≥ 5).
+
+To generate a combined TSV file for each dataframe type (aggregated across multiple samples), you can run this -
+
+```R
+library(rmarkdown)
+library(dplyr)
+library(readr)
+
+# Get a list of all .rds files in the results folder
+rds_files <- list.files('results/', pattern = "\\.rds$", full.names = TRUE, recursive = TRUE)
+
+# Extract a specific dataframe from the RDS object
+load_df <- function(file, df_name) {
+  obj <- readRDS(file)  # Load the RDS object
+  df <- obj[[df_name]]  # Extract the dataframe
+}
+
+# Save a dataframe to a TSV file
+save_to_tsv <- function(df, output_file) {
+  readr::write_tsv(df, file = output_file)
+  cat("Saved to TSV file:", output_file, "\n")
+}
+
+# Process each dataframe type and save as separate TSV files
+dataframe_names <- c("snpeff", "enh", "annotsv", "tr")
+for (df_name in dataframe_names) {
+  # Load all dataframes of the specified type and combine them
+  combined_df <- rds_files %>%
+    lapply(load_df, df_name = df_name) %>%
+    bind_rows()
+  
+  # Save the combined dataframe to a TSV file in the results folder
+  if (!is.null(combined_df) && nrow(combined_df) > 0) {
+    output_file <- file.path(results, paste0("combined_", df_name, ".tsv"))
+    save_to_tsv(combined_df, output_file)
+  } else {
+    cat("No data for", df_name, "found in any RDS file.\n")
+  }
+}
+```
 
 ## Test locally
 

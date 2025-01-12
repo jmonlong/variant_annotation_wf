@@ -198,9 +198,7 @@ rule annotate_svs_sveval:
     benchmark: 'benchmark/annotate_svs_sveval.svs{svmeth}.{sample}.tsv'
     shell:
         """
-        # Rscript {input.script} {input.vcf} {input.db} {params.tmp_vcf}
-        gunzip -c {input.vcf} | bgzip > {params.tmp_vcf}
-        R CMD BATCH '--args {params.tmp_vcf} {input.db} {params.tmp_vcf}' {input.script} {params.tmp_vcf}.out
+        Rscript {input.script} {input.vcf} {input.db} {params.tmp_vcf}
         bcftools sort -T {params.tmp_dir} -Oz -o {output} {params.tmp_vcf}
         rm -f {params.tmp_vcf}
         """
