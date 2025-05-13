@@ -94,15 +94,18 @@ rm -fr AnnotSV
 
 ### Misc annotations in R object
 
-`annotation_database.RData`
+We have compiled a set of diverse annotations on GRCh38 into an R object that is used during the filtering and report compilation. 
+The `annotation_database.RData` file contain annotation about catalogs of known SVs, gene annotation, gene constraint scores, repeat annotations, enhancers annotation.
 
-*Details and link soon...*
+It was created using the [`references/prepare-annotations.R`](references/prepare-annotations.R) script. 
+The commands to prepare the data are listed in the [references](references) folder.
 
 ### Tandem repeat expansion in public controls
 
-`hprc-hgsvc-tr-catalog.tsv.gz`
-
-*Details and link soon...*
+We compute the length of annotated repeats by combining SV calls for each haplotypes using the [`scripts/prepare_tr_from_vcf.py`](scripts/prepare_tr_from_vcf.py).
+We compare the length of those repeat expansions/contractions to the distribution in control samples, here HPRC and HGSVC2 samples. 
+This catalog of comparable repeat variation was computed by running the same script on the calls from HPRC/HGSVC and produce `hprc-hgsvc-tr-catalog.tsv.gz`.
+More instructions to create this file is available in the [references](references) folder.
 
 ### ClinVar VCF
 
